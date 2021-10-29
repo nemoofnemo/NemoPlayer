@@ -34,4 +34,5 @@ public:
 
 public slots:
     void onDecodeOptionAction(bool checked);
+    void onOpenFileAction(bool checked);
 };

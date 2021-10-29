@@ -18,7 +18,7 @@
     <item row="0" column="0">
      <layout class="QVBoxLayout" name="verticalLayout">
       <item>
-       <widget class="ScreenWidget" name="openGLWidget">
+       <widget class="ScreenWidget" name="screen">
         <property name="minimumSize">
          <size>
           <width>400</width>
