@@ -13,7 +13,8 @@
 enum class ScreenStatus {
 	SCREEN_STATUS_NONE,
 	SCREEN_STATUS_PLAYING,
-	SCREEN_STATUS_PAUSE
+	SCREEN_STATUS_PAUSE,
+	SCREEN_STATUS_EXIT
 };
 
 struct FrameData {
@@ -27,12 +28,18 @@ class ScreenWidget final :
 {
 	Q_OBJECT
 private:
-	int preloadLimit = 30;
+	std::mutex lock;
+	int preloadLimit = 10;
+	int threadInterval = 1;
+	int threadCount = 0;
 	ScreenStatus status = ScreenStatus::SCREEN_STATUS_NONE;
 	AVHWDeviceType deviceType = AVHWDeviceType::AV_HWDEVICE_TYPE_NONE;
 	AVFormatContext* formatContext = nullptr;
 	AVCodecContext* videoCodecContext = nullptr;
 	AVCodecContext* audioCodecContext = nullptr;
+	AVPacket* packet = nullptr;
+	std::list<AVFrame*> videoFrameList;
+	std::list<AVFrame*> audioFrameList;
 	int videoStreamIndex = -1;
 	int audioStreamIndex = -1;
 	
@@ -46,7 +53,8 @@ private:
 	void setScreenStatus(ScreenStatus s);
 
 	//read frame from file.
-	static void readThread(ScreenWidget* screen);
+	static int readThread(ScreenWidget* screen);
+	static int decodePacket(ScreenWidget* screen);
 
 protected:
 	void initializeGL(void) override;

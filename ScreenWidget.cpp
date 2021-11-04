@@ -47,6 +47,8 @@ int ScreenWidget::openCodexContext(AVCodecContext** pCC, AVFormatContext* pFC, i
 
 void ScreenWidget::clearOnOpen(void)
 {
+	if (packet)
+		av_packet_free(&packet);
 	if (videoCodecContext)
 		avcodec_free_context(&videoCodecContext);
 	if (audioCodecContext)
@@ -94,7 +96,7 @@ int ScreenWidget::m_openFile(const QString& path)
 		if (ret < 0) {
 			clearOnOpen();
 			return ret;
-		}
+		}	
 	}
 
 	/* find decoder for the audio stream */
@@ -110,12 +112,80 @@ int ScreenWidget::m_openFile(const QString& path)
 		}
 	}
 	
+	packet = av_packet_alloc();
+	if (!packet) {
+		QMessageBox::critical(nullptr, "error", "av_packet_alloc error", QMessageBox::Ok);
+		clearOnOpen();
+		ret = AVERROR(ENOMEM);
+		return ret;
+	}
+
 	return 0;
 }
 
 int ScreenWidget::m_openFileHW(const QString& path)
 {
 	return 0;
+}
+
+int ScreenWidget::readThread(ScreenWidget* screen)
+{
+	qDebug("readThread start");
+	int ret = 0;
+	auto funcFlag = [screen]() {
+		return (screen->videoFrameList.size() < screen->preloadLimit) || (screen->audioFrameList.size() < screen->preloadLimit);
+	};
+	screen->threadCount++;
+	for (;;) {
+		screen->lock.lock();
+		if (screen->status == ScreenStatus::SCREEN_STATUS_EXIT) {
+			screen->lock.unlock();
+			break;
+		}
+		else if (screen->status == ScreenStatus::SCREEN_STATUS_PAUSE) {
+			screen->lock.unlock();
+			this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
+			continue;
+		}
+		else if (screen->status == ScreenStatus::SCREEN_STATUS_NONE) {
+			screen->lock.unlock();
+			this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
+			continue;
+		}
+		else if (screen->status == ScreenStatus::SCREEN_STATUS_PLAYING) {
+			if (funcFlag()) {
+				if ((ret = av_read_frame(screen->formatContext, screen->packet)) >= 0) {
+					//read freame here
+					
+					screen->lock.unlock();
+				}
+				else {
+					//todo: read error.should release resource here
+					screen->lock.unlock();
+					break;
+				}
+			}
+			else {
+				screen->lock.unlock();
+				this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
+			}
+		}
+		else {
+			screen->lock.unlock();
+			qDebug("in readThread: fatel error");
+			exit(-1);
+		}
+	}
+	qDebug("readThread done");
+	screen->threadCount--;
+	return ret;
+}
+
+int ScreenWidget::decodePacket(ScreenWidget* screen)
+{
+	int ret = 0;
+	
+	return ret;
 }
 
 void ScreenWidget::initializeGL(void)
