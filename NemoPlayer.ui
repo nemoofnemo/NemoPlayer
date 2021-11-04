@@ -127,6 +127,7 @@
     </property>
     <addaction name="actionOpen"/>
     <addaction name="actionDecodeOption"/>
+    <addaction name="actionTest"/>
    </widget>
    <addaction name="menufile"/>
   </widget>
@@ -139,6 +140,11 @@
   <action name="actionDecodeOption">
    <property name="text">
     <string>decode option</string>
+   </property>
+  </action>
+  <action name="actionTest">
+   <property name="text">
+    <string>test</string>
    </property>
   </action>
  </widget>

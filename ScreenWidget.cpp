@@ -141,7 +141,7 @@ ScreenWidget::ScreenWidget(QWidget* parent) : QOpenGLWidget(parent)
 
 ScreenWidget::~ScreenWidget()
 {
-	clearOnClose();
+	
 }
 
 void ScreenWidget::openFile(QString path)
@@ -164,8 +164,16 @@ void ScreenWidget::openFile(QString path)
 	}
 }
 
+void ScreenWidget::close(void)
+{
+}
+
 void ScreenWidget::setHWDeviceType(AVHWDeviceType type)
 {
 	deviceType = type;
+}
+
+void ScreenWidget::test(bool checked)
+{
 }
 

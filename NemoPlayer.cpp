@@ -8,6 +8,7 @@ NemoPlayer::NemoPlayer(QWidget *parent)
     ui.setupUi(this);
 	connect(ui.actionDecodeOption, &QAction::triggered, this, &NemoPlayer::onDecodeOptionAction);
 	connect(ui.actionOpen, &QAction::triggered, this, &NemoPlayer::onOpenFileAction);
+	connect(ui.actionTest, &QAction::triggered, ui.screen, &ScreenWidget::test);
 
 	qDebug("ScreenWidget::ScreenWidget");
 	AVHWDeviceType type = AVHWDeviceType::AV_HWDEVICE_TYPE_NONE;

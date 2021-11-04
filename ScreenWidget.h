@@ -3,6 +3,7 @@
 #include <thread>
 #include <mutex>
 #include <chrono>
+#include <list>
 #include <QWidget>
 #include <QOpenGLWidget>
 #include <QOpenGLFunctions_3_3_Core>
@@ -15,10 +16,18 @@ enum class ScreenStatus {
 	SCREEN_STATUS_PAUSE
 };
 
-class ScreenWidget final : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core
+struct FrameData {
+	uint8_t* data;
+	size_t size;
+};
+
+class ScreenWidget final : 
+	public QOpenGLWidget, 
+	protected QOpenGLFunctions_3_3_Core
 {
 	Q_OBJECT
 private:
+	int preloadLimit = 30;
 	ScreenStatus status = ScreenStatus::SCREEN_STATUS_NONE;
 	AVHWDeviceType deviceType = AVHWDeviceType::AV_HWDEVICE_TYPE_NONE;
 	AVFormatContext* formatContext = nullptr;
@@ -53,5 +62,5 @@ public slots:
 	void openFile(QString path);
 	void close(void);
 	void setHWDeviceType(AVHWDeviceType type);
-	
+	void test(bool checked);
 };

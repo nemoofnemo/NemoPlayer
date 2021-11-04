@@ -22,8 +22,8 @@ public:
     NemoPlayer(QWidget *parent = Q_NULLPTR);
     ~NemoPlayer();
 
-    const std::list<AVHWDeviceType>& getDecodeOptions(void) {
-        return decodeOptions;
+    const std::list<AVHWDeviceType>* getDecodeOptions(void) {
+        return &decodeOptions;
     }
 
     AVHWDeviceType getCurrentType(void) {
