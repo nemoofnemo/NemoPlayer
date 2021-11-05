@@ -8,14 +8,14 @@ int ScreenWidget::openCodexContext(AVCodecContext** pCC, AVFormatContext* pFC, i
 	const AVCodec* pCodec = NULL;
 
 	if (!pCC || !pFC || index < 0) {
-		fprintf(stderr, "Invalid args in openCodexContext");
+		qDebug("Invalid args in openCodexContext");
 		return AVERROR(EINVAL);
 	}
 
 	/* find decoder for the stream */
 	pCodec = avcodec_find_decoder(pFC->streams[index]->codecpar->codec_id);
 	if (!pCodec) {
-		fprintf(stderr, "Failed to find %s codec\n",
+		qDebug("Failed to find %s codec",
 			av_get_media_type_string(pFC->streams[index]->codecpar->codec_type));
 		return AVERROR(EINVAL);
 	}
@@ -23,21 +23,21 @@ int ScreenWidget::openCodexContext(AVCodecContext** pCC, AVFormatContext* pFC, i
 	/* Allocate a codec context for the decoder */
 	*pCC = avcodec_alloc_context3(pCodec);
 	if (!*pCC) {
-		fprintf(stderr, "Failed to allocate the %s codec context\n",
+		qDebug("Failed to allocate the %s codec context",
 			av_get_media_type_string(pFC->streams[index]->codecpar->codec_type));
 		return AVERROR(ENOMEM);
 	}
 
 	/* Copy codec parameters from input stream to output codec context */
 	if ((ret = avcodec_parameters_to_context(*pCC, pFC->streams[index]->codecpar)) < 0) {
-		fprintf(stderr, "Failed to copy %s codec parameters to decoder context\n",
+		qDebug("Failed to copy %s codec parameters to decoder context",
 			av_get_media_type_string(pFC->streams[index]->codecpar->codec_type));
 		return ret;
 	}
 
 	/* Init the decoders */
 	if ((ret = avcodec_open2(*pCC, pCodec, NULL)) < 0) {
-		fprintf(stderr, "Failed to open %s codec\n",
+		qDebug("Failed to open %s codec",
 			av_get_media_type_string(pFC->streams[index]->codecpar->codec_type));
 		return ret;
 	}
@@ -63,7 +63,7 @@ void ScreenWidget::clearOnClose(void)
 {
 	//wait for threads exit
 	lock.lock();
-	status = ScreenStatus::SCREEN_STATUS_EXIT;
+	status = ScreenStatus::SCREEN_STATUS_HALT;
 	lock.unlock();
 	while (threadCount > 0) {
 		this_thread::sleep_for(chrono::milliseconds(threadInterval));
@@ -103,7 +103,12 @@ void ScreenWidget::clearOnClose(void)
 
 int ScreenWidget::m_openFile(const QString& path)
 {
+	if (formatContext) {
+		clearOnClose();
+	}
+
 	int ret = 0;
+	status = ScreenStatus::SCREEN_STATUS_NONE;
 
 	if ((ret = avformat_open_input(&formatContext, path.toStdString().c_str(), NULL, NULL)) < 0) {
 		QMessageBox::critical(nullptr, "error", "cannot open file", QMessageBox::Ok);
@@ -125,8 +130,11 @@ int ScreenWidget::m_openFile(const QString& path)
 		ret = openCodexContext(&videoCodecContext, formatContext, videoStreamIndex);
 		if (ret < 0) {
 			clearOnOpen();
+			QMessageBox::critical(nullptr, "error", "openCodexContext error", QMessageBox::Ok);
 			return ret;
 		}	
+		videoWidth = videoCodecContext->width;
+		videoHeight = videoCodecContext->height;
 	}
 
 	/* find decoder for the audio stream */
@@ -138,6 +146,7 @@ int ScreenWidget::m_openFile(const QString& path)
 		ret = openCodexContext(&audioCodecContext, formatContext, audioStreamIndex);
 		if (ret < 0) {
 			clearOnOpen();
+			QMessageBox::critical(nullptr, "error", "openCodexContext error", QMessageBox::Ok);
 			return ret;
 		}
 	}
@@ -173,7 +182,7 @@ int ScreenWidget::readThread(ScreenWidget* screen)
 
 	for (;;) {
 		screen->lock.lock();
-		if (screen->status == ScreenStatus::SCREEN_STATUS_EXIT) {
+		if (screen->status == ScreenStatus::SCREEN_STATUS_HALT) {
 			screen->lock.unlock();
 			break;
 		}
@@ -278,7 +287,7 @@ int ScreenWidget::videoThread(ScreenWidget* screen)
 
 	for (;;) {
 		screen->lock.lock();
-		if (screen->status == ScreenStatus::SCREEN_STATUS_EXIT) {
+		if (screen->status == ScreenStatus::SCREEN_STATUS_HALT) {
 			screen->lock.unlock();
 			break;
 		}
@@ -335,6 +344,10 @@ ScreenWidget::~ScreenWidget()
 
 void ScreenWidget::openFile(QString path)
 {
+	if (path.size() == 0) {
+		QMessageBox::information(this, "open file", "invalid path", QMessageBox::Ok);
+	}
+
 	if (deviceType == AVHWDeviceType::AV_HWDEVICE_TYPE_NONE) {
 		if (m_openFile(path) == 0) {
 			QMessageBox::information(this, "open file", path, QMessageBox::Ok);
@@ -365,5 +378,18 @@ void ScreenWidget::setHWDeviceType(AVHWDeviceType type)
 void ScreenWidget::test(bool checked)
 {
 	qDebug("test triggered");
+}
+
+void ScreenWidget::setScreenStatus(ScreenStatus s)
+{
+	qDebug("setScreenStatus");
+
+	lock.lock();
+	status = s;
+	lock.unlock();
+
+	if (s == ScreenStatus::SCREEN_STATUS_HALT) {
+		clearOnClose();
+	}
 }
 

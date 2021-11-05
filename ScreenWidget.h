@@ -14,12 +14,7 @@ enum class ScreenStatus {
 	SCREEN_STATUS_NONE,
 	SCREEN_STATUS_PLAYING,
 	SCREEN_STATUS_PAUSE,
-	SCREEN_STATUS_EXIT
-};
-
-struct FrameData {
-	uint8_t* data;
-	size_t size;
+	SCREEN_STATUS_HALT
 };
 
 class ScreenWidget final : 
@@ -27,6 +22,12 @@ class ScreenWidget final :
 	protected QOpenGLFunctions_3_3_Core
 {
 	Q_OBJECT
+public:
+	struct FrameData {
+		uint8_t* data;
+		size_t size;
+	};
+
 private:
 	std::mutex lock;
 	int preloadLimit = 10;
@@ -45,14 +46,10 @@ private:
 	int videoStreamIndex = -1;
 	int audioStreamIndex = -1;
 	
+private:
 	int openCodexContext(AVCodecContext** pCC, AVFormatContext* pFC, int index);
-	void clearOnOpen(void);
-	void clearOnClose(void);
 	int m_openFile(const QString& path);
 	int m_openFileHW(const QString& path);
-	int m_closeFile(void);
-	int m_closeFileHW(void);
-	void setScreenStatus(ScreenStatus s);
 
 	//read frame from file.
 	static int readThread(ScreenWidget* screen);
@@ -71,9 +68,17 @@ public:
 	explicit ScreenWidget(QWidget* parent);
 	~ScreenWidget();
 
+signals:
+	void drawVideoFrame(FrameData data);
+
+private slots:
+	void clearOnOpen(void);
+	void clearOnClose(void);
+
 public slots:
 	void openFile(QString path);
 	void close(void);
 	void setHWDeviceType(AVHWDeviceType type);
 	void test(bool checked);
+	void setScreenStatus(ScreenStatus s);
 };
