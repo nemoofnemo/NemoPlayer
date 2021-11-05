@@ -25,20 +25,6 @@ NemoPlayer::~NemoPlayer()
 
 }
 
-void NemoPlayer::set_HW_Type(AVHWDeviceType type)
-{
-	if (this->type != type) {
-		QString str = "change device type from "
-			+ QString(av_hwdevice_get_type_name(this->type))
-			+ " to "
-			+ QString(av_hwdevice_get_type_name(type));
-		this->type = type;
-		ui.screen->setHWDeviceType(type);
-		qDebug(str.toStdString().c_str());
-	}
-	return;
-}
-
 void NemoPlayer::onDecodeOptionAction(bool checked)
 {
 	DecodeOption* pDecodeOption = new DecodeOption(this);
@@ -53,5 +39,18 @@ void NemoPlayer::onOpenFileAction(bool checked)
 	}
 	else {
 		QMessageBox::information(this, "File info", "no file selected.", QMessageBox::StandardButton::Ok);
+	}
+}
+
+void NemoPlayer::onSetDeviceType(AVHWDeviceType type)
+{
+	if (this->deviceType != type) {
+		QString str = "change device type from "
+			+ QString(av_hwdevice_get_type_name(this->deviceType))
+			+ " to "
+			+ QString(av_hwdevice_get_type_name(type));
+		this->deviceType = type;
+		ui.screen->setHWDeviceType(type);
+		qDebug(str.toStdString().c_str());
 	}
 }

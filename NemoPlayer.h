@@ -12,27 +12,29 @@ class DecodeOption;
 
 class NemoPlayer : public QMainWindow
 {
-    Q_OBJECT
+	Q_OBJECT
 private:
-    Ui::NemoPlayerClass ui;
-    std::list<AVHWDeviceType> decodeOptions;
-    AVHWDeviceType type = AVHWDeviceType::AV_HWDEVICE_TYPE_NONE;
+	Ui::NemoPlayerClass ui;
+	std::list<AVHWDeviceType> decodeOptions;
+	AVHWDeviceType deviceType = AVHWDeviceType::AV_HWDEVICE_TYPE_NONE;
 
 public:
-    NemoPlayer(QWidget *parent = Q_NULLPTR);
-    ~NemoPlayer();
+	NemoPlayer(QWidget* parent = Q_NULLPTR);
+	~NemoPlayer();
 
-    const std::list<AVHWDeviceType>* getDecodeOptions(void) {
-        return &decodeOptions;
-    }
+	const std::list<AVHWDeviceType>* getDecodeOptions(void) const{
+		return &decodeOptions;
+	}
 
-    AVHWDeviceType getCurrentType(void) {
-        return type;
-    }
+	AVHWDeviceType getCurrentType(void) const {
+		return deviceType;
+	}
 
-    void set_HW_Type(AVHWDeviceType type);
+signals:
+	
 
 public slots:
-    void onDecodeOptionAction(bool checked);
-    void onOpenFileAction(bool checked);
+	void onDecodeOptionAction(bool checked);
+	void onOpenFileAction(bool checked);
+	void onSetDeviceType(AVHWDeviceType type);
 };

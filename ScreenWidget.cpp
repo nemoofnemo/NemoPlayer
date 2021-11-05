@@ -61,6 +61,10 @@ void ScreenWidget::clearOnOpen(void)
 
 void ScreenWidget::clearOnClose(void)
 {
+	if (!formatContext) {
+		return;
+	}
+
 	//wait for threads exit
 	lock.lock();
 	status = ScreenStatus::SCREEN_STATUS_HALT;
@@ -86,6 +90,9 @@ void ScreenWidget::clearOnClose(void)
 		av_frame_free(&frame);
 		audioFrameList.pop_front();
 	}
+	
+	videoStreamIndex = -1;
+	audioStreamIndex = -1;
 
 	if (packet)
 		av_packet_free(&packet);
@@ -95,8 +102,6 @@ void ScreenWidget::clearOnClose(void)
 		avcodec_free_context(&audioCodecContext);
 	if (formatContext)
 		avformat_close_input(&formatContext);
-	videoStreamIndex = -1;
-	audioStreamIndex = -1;
 
 	lock.unlock();
 }
@@ -326,6 +331,7 @@ void ScreenWidget::initializeGL(void)
 
 void ScreenWidget::resizeGL(int w, int h)
 {
+	qDebug("resizeGL: w=%d, h=%d", w, h);
 }
 
 void ScreenWidget::paintGL(void)

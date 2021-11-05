@@ -19,6 +19,9 @@ private:
 protected:
     void closeEvent(QCloseEvent* event) override;
 
+signals:
+    void setDeviceType(AVHWDeviceType type);
+
 public:
     DecodeOption() = delete;
     explicit DecodeOption(NemoPlayer* parent);
