@@ -32,6 +32,8 @@ private:
 	int preloadLimit = 10;
 	int threadInterval = 1;
 	int threadCount = 0;
+	int videoWidth = 0;
+	int videoHeight = 0;
 	ScreenStatus status = ScreenStatus::SCREEN_STATUS_NONE;
 	AVHWDeviceType deviceType = AVHWDeviceType::AV_HWDEVICE_TYPE_NONE;
 	AVFormatContext* formatContext = nullptr;
@@ -55,6 +57,9 @@ private:
 	//read frame from file.
 	static int readThread(ScreenWidget* screen);
 	static int decodePacket(ScreenWidget* screen);
+
+	//video display thread
+	static int videoThread(ScreenWidget* screen);
 
 protected:
 	void initializeGL(void) override;
