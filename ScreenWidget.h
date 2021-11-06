@@ -35,6 +35,12 @@ private:
 	int threadCount = 0;
 	int videoWidth = 0;
 	int videoHeight = 0;
+	int64_t offset = 0;
+	//time offset from beginning of media file.
+	std::chrono::milliseconds timeOffset;
+	//startTimeStamp will be initialized with current time
+	// when the player start playing
+	std::chrono::system_clock::time_point startTimeStamp;
 	ScreenStatus status = ScreenStatus::SCREEN_STATUS_NONE;
 	AVHWDeviceType deviceType = AVHWDeviceType::AV_HWDEVICE_TYPE_NONE;
 	AVFormatContext* formatContext = nullptr;
@@ -50,6 +56,11 @@ private:
 	int openCodexContext(AVCodecContext** pCC, AVFormatContext* pFC, int index);
 	int m_openFile(const QString& path);
 	int m_openFileHW(const QString& path);
+	
+	//return: not active 0, active 1, expired 2
+	int checkFrameStatus(AVFrame* frame);
+
+	static std::chrono::milliseconds convert_ts_to_ms(int64_t ts, int num, int den);
 
 	//read frame from file.
 	static int readThread(ScreenWidget* screen);
@@ -57,6 +68,8 @@ private:
 
 	//video display thread
 	static int videoThread(ScreenWidget* screen);
+	//audio thread
+	static int audioThread(ScreenWidget* screen);
 
 protected:
 	void initializeGL(void) override;
@@ -74,11 +87,12 @@ signals:
 private slots:
 	void clearOnOpen(void);
 	void clearOnClose(void);
+	void setScreenStatus(ScreenStatus s);
 
 public slots:
 	void openFile(QString path);
 	void close(void);
 	void setHWDeviceType(AVHWDeviceType type);
 	void test(bool checked);
-	void setScreenStatus(ScreenStatus s);
+	
 };

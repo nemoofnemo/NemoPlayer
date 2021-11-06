@@ -164,6 +164,8 @@ int ScreenWidget::m_openFile(const QString& path)
 		return ret;
 	}
 
+	timeOffset = chrono::milliseconds(0);
+
 	//start readThread, videoThread, audioThread here
 	std::thread t(readThread, this);
 	t.detach();
@@ -284,6 +286,16 @@ int ScreenWidget::decodePacket(ScreenWidget* screen)
 	return ret;
 }
 
+int ScreenWidget::checkFrameStatus(AVFrame* frame) {
+	return 0;
+}
+
+std::chrono::milliseconds ScreenWidget::convert_ts_to_ms(int64_t ts, int num, int den)
+{
+	int arg = 1000 * ts * num / den;
+	return std::chrono::milliseconds(arg);
+}
+
 int ScreenWidget::videoThread(ScreenWidget* screen)
 {
 	screen->threadCount++;
@@ -321,6 +333,63 @@ int ScreenWidget::videoThread(ScreenWidget* screen)
 	return ret;
 }
 
+int ScreenWidget::audioThread(ScreenWidget* screen)
+{
+	screen->threadCount++;
+	qDebug("audioThread start");
+	int ret = 0;
+
+	for (;;) {
+		screen->lock.lock();
+		if (screen->status == ScreenStatus::SCREEN_STATUS_HALT) {
+			screen->lock.unlock();
+			break;
+		}
+		else if (screen->status == ScreenStatus::SCREEN_STATUS_PAUSE) {
+			screen->lock.unlock();
+			this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
+			continue;
+		}
+		else if (screen->status == ScreenStatus::SCREEN_STATUS_NONE) {
+			screen->lock.unlock();
+			this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
+			continue;
+		}
+		else if (screen->status == ScreenStatus::SCREEN_STATUS_PLAYING) {
+			int flag = 0;
+			if (screen->audioFrameList.size() == 0) {
+				screen->lock.unlock();
+				this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
+				continue;
+			}
+			while (screen->audioFrameList.size() > 0) {
+				auto frame = *(screen->audioFrameList.begin());
+				auto frameStatus = screen->checkFrameStatus(frame);
+				if (frameStatus == 0) {
+
+				}
+				else if (frameStatus == 1) {
+
+				}
+				else if (frameStatus == 2) {
+					screen->audioFrameList.pop_front();
+					continue;
+				}
+			}
+			screen->lock.unlock();
+		}
+		else {
+			screen->lock.unlock();
+			qDebug("in videoThread: fatel error");
+			exit(-1);
+		}
+	}
+
+	qDebug("audioThread done");
+	screen->threadCount--;
+	return ret;
+}
+
 void ScreenWidget::initializeGL(void)
 {
 	qDebug("ScreenWidget::initializeGL");
@@ -340,7 +409,8 @@ void ScreenWidget::paintGL(void)
 
 ScreenWidget::ScreenWidget(QWidget* parent) : QOpenGLWidget(parent)
 {
-	
+	timeOffset = chrono::milliseconds(0);
+	startTimeStamp = chrono::system_clock::now();
 }
 
 ScreenWidget::~ScreenWidget()
@@ -383,6 +453,7 @@ void ScreenWidget::setHWDeviceType(AVHWDeviceType type)
 
 void ScreenWidget::test(bool checked)
 {
+
 	qDebug("test triggered");
 }
 
