@@ -286,14 +286,16 @@ int ScreenWidget::decodePacket(ScreenWidget* screen)
 	return ret;
 }
 
-int ScreenWidget::checkFrameStatus(AVFrame* frame) {
-	return 0;
+std::chrono::milliseconds ScreenWidget::ts_to_millisecond(int64_t ts, int num, int den)
+{
+	int64_t arg = 1000 * ts * num / den;
+	return std::chrono::milliseconds(arg);
 }
 
-std::chrono::milliseconds ScreenWidget::convert_ts_to_ms(int64_t ts, int num, int den)
+std::chrono::microseconds ScreenWidget::ts_to_microsecond(int64_t ts, int num, int den)
 {
-	int arg = 1000 * ts * num / den;
-	return std::chrono::milliseconds(arg);
+	int64_t arg = 1000000 * ts * num / den;
+	return std::chrono::microseconds(arg);
 }
 
 int ScreenWidget::videoThread(ScreenWidget* screen)
@@ -338,6 +340,8 @@ int ScreenWidget::audioThread(ScreenWidget* screen)
 	screen->threadCount++;
 	qDebug("audioThread start");
 	int ret = 0;
+	int flag = 0;
+	chrono::microseconds tmp_time(0);
 
 	for (;;) {
 		screen->lock.lock();
@@ -356,27 +360,16 @@ int ScreenWidget::audioThread(ScreenWidget* screen)
 			continue;
 		}
 		else if (screen->status == ScreenStatus::SCREEN_STATUS_PLAYING) {
-			int flag = 0;
 			if (screen->audioFrameList.size() == 0) {
 				screen->lock.unlock();
 				this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
 				continue;
 			}
-			while (screen->audioFrameList.size() > 0) {
-				auto frame = *(screen->audioFrameList.begin());
-				auto frameStatus = screen->checkFrameStatus(frame);
-				if (frameStatus == 0) {
 
-				}
-				else if (frameStatus == 1) {
-
-				}
-				else if (frameStatus == 2) {
-					screen->audioFrameList.pop_front();
-					continue;
-				}
-			}
+			flag = m_audioFunc(screen, &tmp_time);
 			screen->lock.unlock();
+
+			//todo
 		}
 		else {
 			screen->lock.unlock();
@@ -387,6 +380,43 @@ int ScreenWidget::audioThread(ScreenWidget* screen)
 
 	qDebug("audioThread done");
 	screen->threadCount--;
+	return ret;
+}
+
+int ScreenWidget::m_audioFunc(ScreenWidget* screen, std::chrono::microseconds* time)
+{
+	int ret = 0;
+
+	while (screen->audioFrameList.size() > 0) {
+		auto frame = *(screen->audioFrameList.begin());
+		auto dt = chrono::duration_cast<chrono::microseconds>(chrono::steady_clock::now() - screen->startTimeStamp);
+		auto target_time = screen->timeOffset + dt;
+		chrono::microseconds t1(ts_to_microsecond(
+			frame->pts,
+			screen->audioCodecContext->time_base.num,
+			screen->audioCodecContext->time_base.den
+		));
+		chrono::microseconds t2(ts_to_microsecond(
+			frame->pts + frame->pkt_dts,
+			screen->audioCodecContext->time_base.num,
+			screen->audioCodecContext->time_base.den
+		));
+
+		if (target_time >= t1 && target_time < t2) {
+
+		}
+		else if (target_time < t1) {
+			*time = t1 - target_time;
+			return 1;
+		}
+		else {
+			av_frame_unref(frame);
+			av_frame_free(&frame);
+			screen->audioFrameList.pop_front();
+			continue;
+		}
+	}
+
 	return ret;
 }
 
@@ -409,8 +439,8 @@ void ScreenWidget::paintGL(void)
 
 ScreenWidget::ScreenWidget(QWidget* parent) : QOpenGLWidget(parent)
 {
-	timeOffset = chrono::milliseconds(0);
-	startTimeStamp = chrono::system_clock::now();
+	timeOffset = chrono::microseconds(0);
+	startTimeStamp = chrono::steady_clock::now();
 }
 
 ScreenWidget::~ScreenWidget()
