@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <sstream>
 #include <thread>
 #include <mutex>
 #include <chrono>
@@ -31,7 +32,9 @@ public:
 
 private:
 	std::mutex lock;
+	ScreenStatus status = ScreenStatus::SCREEN_STATUS_NONE;
 	int preloadLimit = 30;
+	//time in ms
 	int threadInterval = 1;
 	int threadCount = 0;
 	int videoWidth = 0;
@@ -41,7 +44,6 @@ private:
 	//startTimeStamp will be set with current time
 	// when the player start playing or resume playing
 	std::chrono::steady_clock::time_point startTimeStamp;
-	ScreenStatus status = ScreenStatus::SCREEN_STATUS_NONE;
 	AVHWDeviceType deviceType = AVHWDeviceType::AV_HWDEVICE_TYPE_NONE;
 	AVFormatContext* formatContext = nullptr;
 	AVCodecContext* videoCodecContext = nullptr;
@@ -56,10 +58,31 @@ private:
 	int videoStreamIndex = -1;
 	int audioStreamIndex = -1;
 	
+	GLuint VBO = 0;
+	GLuint VAO = 0;
+	GLuint EBO = 0;
+	string vsCode, fsCode;
+	GLuint program = 0;
+	GLuint texture = 0;
+
+	float vertices[20] = {
+			 1.0f,  1.0f, 0.0f, 1.0f, 1.0f,   // right-top
+			 1.0f, -1.0f, 0.0f, 1.0f, 0.0f,   // right-bottom
+			-1.0f, -1.0f, 0.0f, 0.0f, 0.0f,   // left-bottom
+			-1.0f,  1.0f, 0.0f,  0.0f, 1.0f    // left-top
+	};
+
+	unsigned int indices[6] = { 
+		0, 1, 3,	//first
+		1, 2, 3	//second
+	};
+
 private:
 	int openCodexContext(AVCodecContext** pCC, AVFormatContext* pFC, int index);
 	int m_openFile(const QString& path);
 	int m_openFileHW(const QString& path);
+	void initShaderScript(void);
+	bool createProgram(void);
 
 	//read frame from file.
 	static int readThread(ScreenWidget* screen);
@@ -92,6 +115,7 @@ private slots:
 	void clearOnOpen(void);
 	void clearOnClose(void);
 	void setScreenStatus(ScreenStatus s);
+	void onDrawFrame(FrameData data);
 
 public slots:
 	void openFile(QString path);

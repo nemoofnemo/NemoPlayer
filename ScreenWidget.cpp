@@ -178,6 +178,85 @@ int ScreenWidget::m_openFileHW(const QString& path)
 	return 0;
 }
 
+void ScreenWidget::initShaderScript(void)
+{
+	stringstream vs, fs;
+
+	vs << "#version 330 core" << endl
+		<< "layout(location = 0) in vec3 aPos;" << endl
+		<< "layout(location = 1) in vec2 aTexCoord;" << endl
+		<< "out vec2 optTexCoord;" << endl
+		<< "void main()" << endl
+		<< "{" << endl
+		<< "gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);" << endl
+		<< "optTexCoord = aTexCoord;" << endl
+		<< "}" << endl;
+	vsCode = vs.str();
+
+	fs << "#version 330 core" << endl
+		<< "in vec2 optTexCoord;" << endl
+		<< "out vec4 FragColor;" << endl
+		<< "uniform sampler2D texture0;" << endl
+		<< "void main()" << endl
+		<< "{" << endl
+		<< "FragColor = texture(texture0, optTexCoord);" << endl
+		<< "}" << endl;
+	fsCode = fs.str();
+}
+
+bool ScreenWidget::createProgram(void)
+{
+	initShaderScript();
+
+	const char* vertexShaderSource = vsCode.c_str();
+	const char* fragmentShaderSource = fsCode.c_str();
+	int  success = 0;
+	char infoLog[512] = { '\0' };
+
+	auto vertexShader = glCreateShader(GL_VERTEX_SHADER);
+	glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
+	glCompileShader(vertexShader);
+	glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
+	if (!success)
+	{
+		glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+		qDebug("ERROR::vertexShader::COMPILATION_FAILED");
+		qDebug(infoLog);
+		return false;
+	}
+
+	//fragment shader
+	auto fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+	glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
+	glCompileShader(fragmentShader);
+	glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
+	if (!success)
+	{
+		glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
+		qDebug("ERROR::fragmentShader::COMPILATION_FAILED");
+		qDebug(infoLog);
+		return false;
+	}
+
+	//link shader program
+	program = glCreateProgram();
+	glAttachShader(program, vertexShader);
+	glAttachShader(program, fragmentShader);
+	glLinkProgram(program);
+	glGetProgramiv(program, GL_LINK_STATUS, &success);
+	if (!success) {
+		glGetProgramInfoLog(program, 512, NULL, infoLog);
+		qDebug("ERROR::shaderProgram::FAILED");
+		qDebug(infoLog);
+		return false;
+	}
+
+	//release shaders after link
+	glDeleteShader(vertexShader);
+	glDeleteShader(fragmentShader);
+	return true;
+}
+
 int ScreenWidget::readThread(ScreenWidget* screen)
 {
 	screen->threadCount++;
@@ -209,7 +288,7 @@ int ScreenWidget::readThread(ScreenWidget* screen)
 		}
 		else if (screen->status == ScreenStatus::SCREEN_STATUS_PLAYING) {
 			if (funcFlag()) {
-				//read freame here
+				//read frame here
 				if ((ret = av_read_frame(screen->formatContext, screen->packet)) >= 0) {
 					ret = avcodec_send_packet(screen->videoCodecContext, screen->packet);
 					if ((ret = ScreenWidget::decodePacket(screen)) == 0) {
@@ -239,8 +318,8 @@ int ScreenWidget::readThread(ScreenWidget* screen)
 		}
 	}
 
-	qDebug("readThread done");
 	screen->threadCount--;
+	qDebug("readThread done");
 	return ret;
 }
 
@@ -312,41 +391,38 @@ int ScreenWidget::videoThread(ScreenWidget* screen)
 	qDebug("videoThread start");
 	int ret = 0;
 	int flag = 0;
+	ScreenStatus status = ScreenStatus::SCREEN_STATUS_NONE;
 	chrono::microseconds tmp_time(0);
 
 	for (;;) {
 		screen->lock.lock();
+		status = screen->status;
+		screen->lock.unlock();
+
 		if (screen->status == ScreenStatus::SCREEN_STATUS_HALT) {
-			screen->lock.unlock();
 			break;
 		}
 		else if (screen->status == ScreenStatus::SCREEN_STATUS_PAUSE) {
-			screen->lock.unlock();
 			this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
 			continue;
 		}
 		else if (screen->status == ScreenStatus::SCREEN_STATUS_NONE) {
-			screen->lock.unlock();
 			this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
 			continue;
 		}
 		else if (screen->status == ScreenStatus::SCREEN_STATUS_PLAYING) {
 			if (screen->audioFrameList.size() == 0) {
-				screen->lock.unlock();
 				this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
 				continue;
 			}
 			else {
 				flag = m_videoFunc(screen, &tmp_time);
-				screen->lock.unlock();
-
 				if (flag == 1) {
 					this_thread::sleep_for(tmp_time);
 				}
 			}
 		}
 		else {
-			screen->lock.unlock();
 			qDebug("in videoThread: fatel error");
 			exit(-1);
 		}
@@ -494,6 +570,34 @@ void ScreenWidget::initializeGL(void)
 	initializeOpenGLFunctions();
 	glClearColor(0, 0, 0, 1);
 	glClear(GL_COLOR_BUFFER_BIT);
+	//compile and link program
+	createProgram();
+
+	glGenVertexArrays(1, &VAO);
+	glBindVertexArray(VAO);
+
+	glGenBuffers(1, &VBO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+	glGenBuffers(1, &EBO);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+	glEnableVertexAttribArray(1);
+
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindVertexArray(0);
+
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 }
 
 void ScreenWidget::resizeGL(int w, int h)
@@ -503,6 +607,15 @@ void ScreenWidget::resizeGL(int w, int h)
 
 void ScreenWidget::paintGL(void)
 {
+	// bind textures on corresponding texture units
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glUseProgram(program);
+
+	// render container
+	glBindVertexArray(VAO);
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+	glBindVertexArray(0);
 }
 
 ScreenWidget::ScreenWidget(QWidget* parent) : QOpenGLWidget(parent)
@@ -575,5 +688,9 @@ void ScreenWidget::setScreenStatus(ScreenStatus s)
 	if (s == ScreenStatus::SCREEN_STATUS_HALT) {
 		clearOnClose();
 	}
+}
+
+void ScreenWidget::onDrawFrame(FrameData data)
+{
 }
 
