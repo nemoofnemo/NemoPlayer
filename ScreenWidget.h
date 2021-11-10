@@ -24,18 +24,18 @@ class ScreenWidget final :
 	Q_OBJECT
 public:
 	struct FrameData {
-		uint8_t* data;
-		size_t size;
+		uint8_t* videoData[4] = { NULL };
+		int videoLinesize[4] = { 0 };
+		int bufSize = 0;
 	};
 
 private:
 	std::mutex lock;
-	int preloadLimit = 10;
+	int preloadLimit = 30;
 	int threadInterval = 1;
 	int threadCount = 0;
 	int videoWidth = 0;
 	int videoHeight = 0;
-	//int64_t offset = 0;
 	//time offset from beginning of media file.
 	std::chrono::microseconds timeOffset;
 	//startTimeStamp will be set with current time
@@ -47,7 +47,11 @@ private:
 	AVCodecContext* videoCodecContext = nullptr;
 	AVCodecContext* audioCodecContext = nullptr;
 	AVPacket* packet = nullptr;
+	int videoPreload = 60;
+	std::mutex videoLock;
 	std::list<AVFrame*> videoFrameList;
+	int audioPreload = 60;
+	std::mutex audioLock;
 	std::list<AVFrame*> audioFrameList;
 	int videoStreamIndex = -1;
 	int audioStreamIndex = -1;
@@ -63,6 +67,7 @@ private:
 
 	//video display thread
 	static int videoThread(ScreenWidget* screen);
+	static int m_videoFunc(ScreenWidget* screen, std::chrono::microseconds* time);
 	//audio thread
 	static int audioThread(ScreenWidget* screen);
 	static int m_audioFunc(ScreenWidget* screen, std::chrono::microseconds* time);
@@ -93,5 +98,6 @@ public slots:
 	void close(void);
 	void setHWDeviceType(AVHWDeviceType type);
 	void test(bool checked);
+	void play(bool checked);
 	
 };

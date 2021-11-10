@@ -90,7 +90,7 @@ void ScreenWidget::clearOnClose(void)
 		av_frame_free(&frame);
 		audioFrameList.pop_front();
 	}
-	
+
 	videoStreamIndex = -1;
 	audioStreamIndex = -1;
 
@@ -128,7 +128,7 @@ int ScreenWidget::m_openFile(const QString& path)
 
 	/* find decoder for the video stream */
 	ret = av_find_best_stream(
-		formatContext, AVMediaType::AVMEDIA_TYPE_VIDEO, 
+		formatContext, AVMediaType::AVMEDIA_TYPE_VIDEO,
 		-1, -1, NULL, 0);
 	if (ret >= 0) {
 		videoStreamIndex = ret;
@@ -137,14 +137,14 @@ int ScreenWidget::m_openFile(const QString& path)
 			clearOnOpen();
 			QMessageBox::critical(nullptr, "error", "openCodexContext error", QMessageBox::Ok);
 			return ret;
-		}	
+		}
 		videoWidth = videoCodecContext->width;
 		videoHeight = videoCodecContext->height;
 	}
 
 	/* find decoder for the audio stream */
 	ret = av_find_best_stream(
-		formatContext, AVMediaType::AVMEDIA_TYPE_AUDIO, 
+		formatContext, AVMediaType::AVMEDIA_TYPE_AUDIO,
 		-1, -1, NULL, 0);
 	if (ret >= 0) {
 		audioStreamIndex = ret;
@@ -155,7 +155,7 @@ int ScreenWidget::m_openFile(const QString& path)
 			return ret;
 		}
 	}
-	
+
 	packet = av_packet_alloc();
 	if (!packet) {
 		QMessageBox::critical(nullptr, "error", "av_packet_alloc error", QMessageBox::Ok);
@@ -182,60 +182,60 @@ int ScreenWidget::readThread(ScreenWidget* screen)
 {
 	screen->threadCount++;
 	qDebug("readThread start");
+	ScreenStatus status = ScreenStatus::SCREEN_STATUS_NONE;
 	int ret = 0;
-	auto funcFlag = [screen]() {
+	/*auto funcFlag = [screen]() {
 		return (screen->videoFrameList.size() < screen->preloadLimit) || (screen->audioFrameList.size() < screen->preloadLimit);
+	};*/
+	auto funcFlag = [screen]() {
+		return screen->videoFrameList.size() < screen->preloadLimit;
 	};
 
 	for (;;) {
 		screen->lock.lock();
+		status = screen->status;
+		screen->lock.unlock();
+
 		if (screen->status == ScreenStatus::SCREEN_STATUS_HALT) {
-			screen->lock.unlock();
 			break;
 		}
 		else if (screen->status == ScreenStatus::SCREEN_STATUS_PAUSE) {
-			screen->lock.unlock();
 			this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
 			continue;
 		}
 		else if (screen->status == ScreenStatus::SCREEN_STATUS_NONE) {
-			screen->lock.unlock();
 			this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
 			continue;
 		}
 		else if (screen->status == ScreenStatus::SCREEN_STATUS_PLAYING) {
 			if (funcFlag()) {
-				if (screen->deviceType == AVHWDeviceType::AV_HWDEVICE_TYPE_NONE) {
-					if ((ret = av_read_frame(screen->formatContext, screen->packet)) >= 0) {
-						//read freame here
-						if ((ret = ScreenWidget::decodePacket(screen)) < 0) {
-							qDebug("decodePacket error");
-							av_packet_unref(screen->packet);
-							screen->lock.unlock();
-							break;
-						}
+				//read freame here
+				if ((ret = av_read_frame(screen->formatContext, screen->packet)) >= 0) {
+					ret = avcodec_send_packet(screen->videoCodecContext, screen->packet);
+					if ((ret = ScreenWidget::decodePacket(screen)) == 0) {
 						av_packet_unref(screen->packet);
-						screen->lock.unlock();
+						continue;
 					}
 					else {
-						//todo: read error.should release resource here
-						screen->lock.unlock();
+						qDebug("decodePacket error");
+						av_packet_unref(screen->packet);
 						break;
 					}
 				}
 				else {
-					//todo: hw
+					//todo: read error.should release resource here
+					qDebug("av_read_frame error");
+					break;
 				}
 			}
 			else {
-				screen->lock.unlock();
 				this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
 			}
 		}
 		else {
-			screen->lock.unlock();
 			qDebug("in readThread: fatel error");
-			exit(-1);
+			ret = -1;
+			break;
 		}
 	}
 
@@ -251,12 +251,16 @@ int ScreenWidget::decodePacket(ScreenWidget* screen)
 	if (screen->packet->stream_index == screen->videoStreamIndex) {
 		if ((ret = avcodec_send_packet(screen->videoCodecContext, screen->packet)) < 0) {
 			qDebug("avcodec_send_packet error");
+			//char log[512] = { 0 };
+			//av_strerror(ret, log, 512);
+			//qDebug(log);
 			return ret;
 		}
 
-		while (ret > 0) {
+		while (true) {
 			AVFrame* frame = av_frame_alloc();
 			if (!frame) {
+				qDebug("av_frame_alloc error");
 				return -1;
 			}
 
@@ -272,8 +276,11 @@ int ScreenWidget::decodePacket(ScreenWidget* screen)
 					return ret;
 				}
 			}
-
-			screen->videoFrameList.push_back(frame);
+			else {
+				screen->videoLock.lock();
+				screen->videoFrameList.push_back(frame);
+				screen->videoLock.unlock();
+			}
 		}
 
 	}
@@ -281,8 +288,9 @@ int ScreenWidget::decodePacket(ScreenWidget* screen)
 
 	}
 	else {
-		ret = -1;
+		return -1;
 	}
+
 	return ret;
 }
 
@@ -303,6 +311,8 @@ int ScreenWidget::videoThread(ScreenWidget* screen)
 	screen->threadCount++;
 	qDebug("videoThread start");
 	int ret = 0;
+	int flag = 0;
+	chrono::microseconds tmp_time(0);
 
 	for (;;) {
 		screen->lock.lock();
@@ -321,7 +331,19 @@ int ScreenWidget::videoThread(ScreenWidget* screen)
 			continue;
 		}
 		else if (screen->status == ScreenStatus::SCREEN_STATUS_PLAYING) {
-			screen->lock.unlock();
+			if (screen->audioFrameList.size() == 0) {
+				screen->lock.unlock();
+				this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
+				continue;
+			}
+			else {
+				flag = m_videoFunc(screen, &tmp_time);
+				screen->lock.unlock();
+
+				if (flag == 1) {
+					this_thread::sleep_for(tmp_time);
+				}
+			}
 		}
 		else {
 			screen->lock.unlock();
@@ -332,6 +354,52 @@ int ScreenWidget::videoThread(ScreenWidget* screen)
 
 	qDebug("readThread done");
 	screen->threadCount--;
+	return ret;
+}
+
+int ScreenWidget::m_videoFunc(ScreenWidget* screen, std::chrono::microseconds* time)
+{
+	int ret = 0;
+
+	while (screen->audioFrameList.size() > 0) {
+		auto frame = *(screen->audioFrameList.begin());
+		auto dt = chrono::duration_cast<chrono::microseconds>(chrono::steady_clock::now() - screen->startTimeStamp);
+		auto target_time = screen->timeOffset + dt;
+		chrono::microseconds t1(ts_to_microsecond(
+			frame->pts,
+			screen->audioCodecContext->time_base.num,
+			screen->audioCodecContext->time_base.den
+		));
+		chrono::microseconds t2(ts_to_microsecond(
+			frame->pts + frame->pkt_duration,
+			screen->audioCodecContext->time_base.num,
+			screen->audioCodecContext->time_base.den
+		));
+
+		if (target_time >= t1 && target_time < t2) {
+			FrameData data;
+			SwsContext* sws_ctx = sws_getContext(
+				frame->width, frame->height, (AVPixelFormat)frame->format,
+				frame->width, frame->height, AVPixelFormat::AV_PIX_FMT_RGB24,
+				SWS_BILINEAR, NULL, NULL, NULL);
+
+			if (!sws_ctx) {
+				return -1;
+			}
+
+		}
+		else if (target_time < t1) {
+			*time = t1 - target_time;
+			return 1;
+		}
+		else {
+			av_frame_unref(frame);
+			av_frame_free(&frame);
+			screen->audioFrameList.pop_front();
+			continue;
+		}
+	}
+
 	return ret;
 }
 
@@ -397,7 +465,7 @@ int ScreenWidget::m_audioFunc(ScreenWidget* screen, std::chrono::microseconds* t
 			screen->audioCodecContext->time_base.den
 		));
 		chrono::microseconds t2(ts_to_microsecond(
-			frame->pts + frame->pkt_dts,
+			frame->pts + frame->pkt_duration,
 			screen->audioCodecContext->time_base.num,
 			screen->audioCodecContext->time_base.den
 		));
@@ -483,16 +551,25 @@ void ScreenWidget::setHWDeviceType(AVHWDeviceType type)
 
 void ScreenWidget::test(bool checked)
 {
-
 	qDebug("test triggered");
+}
+
+void ScreenWidget::play(bool checked)
+{
+	if (formatContext) {
+		setScreenStatus(ScreenStatus::SCREEN_STATUS_PLAYING);
+	}
 }
 
 void ScreenWidget::setScreenStatus(ScreenStatus s)
 {
-	qDebug("setScreenStatus");
+	qDebug("setScreenStatus: %d to %d", status, s);
 
 	lock.lock();
 	status = s;
+	if (s == ScreenStatus::SCREEN_STATUS_PLAYING) {
+		startTimeStamp = chrono::steady_clock::now();
+	}
 	lock.unlock();
 
 	if (s == ScreenStatus::SCREEN_STATUS_HALT) {
