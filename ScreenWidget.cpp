@@ -169,6 +169,8 @@ int ScreenWidget::m_openFile(const QString& path)
 	//start readThread, videoThread, audioThread here
 	std::thread t(readThread, this);
 	t.detach();
+	std::thread t2(videoThread, this);
+	t2.detach();
 
 	return 0;
 }
@@ -254,6 +256,8 @@ bool ScreenWidget::createProgram(void)
 	//release shaders after link
 	glDeleteShader(vertexShader);
 	glDeleteShader(fragmentShader);
+
+	qDebug("createProgram done");
 	return true;
 }
 
@@ -275,18 +279,18 @@ int ScreenWidget::readThread(ScreenWidget* screen)
 		status = screen->status;
 		screen->lock.unlock();
 
-		if (screen->status == ScreenStatus::SCREEN_STATUS_HALT) {
+		if (status == ScreenStatus::SCREEN_STATUS_HALT) {
 			break;
 		}
-		else if (screen->status == ScreenStatus::SCREEN_STATUS_PAUSE) {
+		else if (status == ScreenStatus::SCREEN_STATUS_PAUSE) {
 			this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
 			continue;
 		}
-		else if (screen->status == ScreenStatus::SCREEN_STATUS_NONE) {
+		else if (status == ScreenStatus::SCREEN_STATUS_NONE) {
 			this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
 			continue;
 		}
-		else if (screen->status == ScreenStatus::SCREEN_STATUS_PLAYING) {
+		else if (status == ScreenStatus::SCREEN_STATUS_PLAYING) {
 			if (funcFlag()) {
 				//read frame here
 				if ((ret = av_read_frame(screen->formatContext, screen->packet)) >= 0) {
@@ -399,19 +403,19 @@ int ScreenWidget::videoThread(ScreenWidget* screen)
 		status = screen->status;
 		screen->lock.unlock();
 
-		if (screen->status == ScreenStatus::SCREEN_STATUS_HALT) {
+		if (status == ScreenStatus::SCREEN_STATUS_HALT) {
 			break;
 		}
-		else if (screen->status == ScreenStatus::SCREEN_STATUS_PAUSE) {
+		else if (status == ScreenStatus::SCREEN_STATUS_PAUSE) {
 			this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
 			continue;
 		}
-		else if (screen->status == ScreenStatus::SCREEN_STATUS_NONE) {
+		else if (status == ScreenStatus::SCREEN_STATUS_NONE) {
 			this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
 			continue;
 		}
-		else if (screen->status == ScreenStatus::SCREEN_STATUS_PLAYING) {
-			if (screen->audioFrameList.size() == 0) {
+		else if (status == ScreenStatus::SCREEN_STATUS_PLAYING) {
+			if (screen->videoFrameList.size() == 0) {
 				this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
 				continue;
 			}
@@ -437,32 +441,55 @@ int ScreenWidget::m_videoFunc(ScreenWidget* screen, std::chrono::microseconds* t
 {
 	int ret = 0;
 
-	while (screen->audioFrameList.size() > 0) {
-		auto frame = *(screen->audioFrameList.begin());
+	while (screen->videoFrameList.size() > 0) {
+		auto frame = *(screen->videoFrameList.begin());
 		auto dt = chrono::duration_cast<chrono::microseconds>(chrono::steady_clock::now() - screen->startTimeStamp);
 		auto target_time = screen->timeOffset + dt;
 		chrono::microseconds t1(ts_to_microsecond(
 			frame->pts,
-			screen->audioCodecContext->time_base.num,
-			screen->audioCodecContext->time_base.den
+			screen->videoCodecContext->time_base.num,
+			screen->videoCodecContext->time_base.den
 		));
 		chrono::microseconds t2(ts_to_microsecond(
 			frame->pts + frame->pkt_duration,
-			screen->audioCodecContext->time_base.num,
-			screen->audioCodecContext->time_base.den
+			screen->videoCodecContext->time_base.num,
+			screen->videoCodecContext->time_base.den
 		));
 
-		if (target_time >= t1 && target_time < t2) {
+		if (true || target_time >= t1 && target_time < t2) {
 			FrameData data;
 			SwsContext* sws_ctx = sws_getContext(
 				frame->width, frame->height, (AVPixelFormat)frame->format,
-				frame->width, frame->height, AVPixelFormat::AV_PIX_FMT_RGB24,
+				screen->videoWidth, screen->videoHeight, AVPixelFormat::AV_PIX_FMT_RGB24,
 				SWS_BILINEAR, NULL, NULL, NULL);
-
 			if (!sws_ctx) {
+				qDebug("sws_getContext error");
 				return -1;
 			}
 
+			data.bufSize = av_image_alloc(
+				data.videoData, data.videoLinesize, 
+				frame->width, frame->height,
+				AVPixelFormat::AV_PIX_FMT_RGB24, 1);
+			if (data.bufSize < 0) {
+				qDebug("av_image_alloc error");
+				return -1;
+			}
+
+			sws_scale(sws_ctx, (const uint8_t* const*)frame->data,
+				frame->linesize, 0, frame->height, data.videoData, data.videoLinesize);
+
+			emit screen->drawVideoFrame(data);
+			
+			screen->videoLock.lock();
+			screen->videoFrameList.pop_front();
+			screen->videoLock.unlock();
+
+			av_frame_unref(frame);
+			av_frame_free(&frame);
+
+			*time = chrono::microseconds(30000);
+			return 1;
 		}
 		else if (target_time < t1) {
 			*time = t1 - target_time;
@@ -471,7 +498,9 @@ int ScreenWidget::m_videoFunc(ScreenWidget* screen, std::chrono::microseconds* t
 		else {
 			av_frame_unref(frame);
 			av_frame_free(&frame);
-			screen->audioFrameList.pop_front();
+			screen->videoLock.lock();
+			screen->videoFrameList.pop_front();
+			screen->videoLock.unlock();
 			continue;
 		}
 	}
@@ -566,23 +595,24 @@ int ScreenWidget::m_audioFunc(ScreenWidget* screen, std::chrono::microseconds* t
 
 void ScreenWidget::initializeGL(void)
 {
-	qDebug("ScreenWidget::initializeGL");
 	initializeOpenGLFunctions();
-	glClearColor(0, 0, 0, 1);
-	glClear(GL_COLOR_BUFFER_BIT);
+
 	//compile and link program
 	createProgram();
+
+	glClearColor(0, 0, 0, 1);
+	glClear(GL_COLOR_BUFFER_BIT);
 
 	glGenVertexArrays(1, &VAO);
 	glBindVertexArray(VAO);
 
 	glGenBuffers(1, &VBO);
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_DYNAMIC_DRAW);
 
 	glGenBuffers(1, &EBO);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_DYNAMIC_DRAW);
 
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0);
@@ -592,12 +622,17 @@ void ScreenWidget::initializeGL(void)
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindVertexArray(0);
 
+	// texture
 	glGenTextures(1, &texture);
 	glBindTexture(GL_TEXTURE_2D, texture);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glUniform1i(glGetUniformLocation(program, "texture0"), 0);
+	glActiveTexture(GL_TEXTURE0);
+
+	qDebug("ScreenWidget::initializeGL done");
 }
 
 void ScreenWidget::resizeGL(int w, int h)
@@ -607,8 +642,9 @@ void ScreenWidget::resizeGL(int w, int h)
 
 void ScreenWidget::paintGL(void)
 {
+	glClear(GL_COLOR_BUFFER_BIT);
+
 	// bind textures on corresponding texture units
-	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, texture);
 	glUseProgram(program);
 
@@ -618,15 +654,29 @@ void ScreenWidget::paintGL(void)
 	glBindVertexArray(0);
 }
 
+void ScreenWidget::onDrawFrame(FrameData data)
+{
+	makeCurrent();
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB,
+		videoWidth, videoHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, data.videoData[0]);
+	paintGL();
+	av_freep(&data.videoData[0]);
+}
+
 ScreenWidget::ScreenWidget(QWidget* parent) : QOpenGLWidget(parent)
 {
 	timeOffset = chrono::microseconds(0);
 	startTimeStamp = chrono::steady_clock::now();
+
+	connect(this, &ScreenWidget::drawVideoFrame, this, &ScreenWidget::onDrawFrame);
 }
 
 ScreenWidget::~ScreenWidget()
 {
 	clearOnClose();
+	glDeleteVertexArrays(1, &VAO);
+	glDeleteBuffers(1, &VBO);
+	glDeleteBuffers(1, &EBO);
 }
 
 void ScreenWidget::openFile(QString path)
@@ -684,13 +734,11 @@ void ScreenWidget::setScreenStatus(ScreenStatus s)
 		startTimeStamp = chrono::steady_clock::now();
 	}
 	lock.unlock();
-
+	
 	if (s == ScreenStatus::SCREEN_STATUS_HALT) {
 		clearOnClose();
 	}
 }
 
-void ScreenWidget::onDrawFrame(FrameData data)
-{
-}
+
 

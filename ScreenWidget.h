@@ -30,8 +30,16 @@ public:
 		int bufSize = 0;
 	};
 
+	enum class ThreadStatus {
+		THREAD_NONE,
+		THREAD_RUN,
+		THREAD_PAUSE,
+		THREAD_HALT
+	};
+
 private:
 	std::mutex lock;
+	ThreadStatus threadStatus = ThreadStatus::THREAD_NONE;
 	ScreenStatus status = ScreenStatus::SCREEN_STATUS_NONE;
 	int preloadLimit = 30;
 	//time in ms
@@ -61,15 +69,15 @@ private:
 	GLuint VBO = 0;
 	GLuint VAO = 0;
 	GLuint EBO = 0;
-	string vsCode, fsCode;
+	std::string vsCode, fsCode;
 	GLuint program = 0;
 	GLuint texture = 0;
 
 	float vertices[20] = {
-			 1.0f,  1.0f, 0.0f, 1.0f, 1.0f,   // right-top
-			 1.0f, -1.0f, 0.0f, 1.0f, 0.0f,   // right-bottom
-			-1.0f, -1.0f, 0.0f, 0.0f, 0.0f,   // left-bottom
-			-1.0f,  1.0f, 0.0f,  0.0f, 1.0f    // left-top
+			 1.0f,  1.0f, 0.0f, 1.0f, 0.0f,   // right-top
+			 1.0f, -1.0f, 0.0f, 1.0f, 1.0f,   // right-bottom
+			-1.0f, -1.0f, 0.0f, 0.0f, 1.0f,   // left-bottom
+			-1.0f,  1.0f, 0.0f,  0.0f, 0.0f    // left-top
 	};
 
 	unsigned int indices[6] = { 
