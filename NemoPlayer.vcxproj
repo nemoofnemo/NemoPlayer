@@ -63,6 +63,7 @@
     <ClCompile>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>D:\ffmpeg\ffmpeg-N-103752-g59719a905c-win64-lgpl-shared\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>26812</DisableSpecificWarnings>
     </ClCompile>
     <Link>
       <AdditionalLibraryDirectories>D:\ffmpeg\ffmpeg-N-103752-g59719a905c-win64-lgpl-shared\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>

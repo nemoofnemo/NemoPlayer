@@ -11,23 +11,18 @@
 #include <QMEssageBox>
 #include "FFmpegHeader.h"
 
-enum class ScreenStatus {
-	SCREEN_STATUS_NONE,
-	SCREEN_STATUS_PLAYING,
-	SCREEN_STATUS_PAUSE,
-	SCREEN_STATUS_HALT
-};
-
 class ScreenWidget final : 
 	public QOpenGLWidget, 
 	protected QOpenGLFunctions_3_3_Core
 {
 	Q_OBJECT
 public:
-	struct FrameData {
+	struct VideoData {
 		uint8_t* videoData[4] = { NULL };
 		int videoLinesize[4] = { 0 };
 		int bufSize = 0;
+		std::chrono::microseconds pts;
+		std::chrono::microseconds duration;
 	};
 
 	enum class ThreadStatus {
@@ -37,9 +32,16 @@ public:
 		THREAD_HALT
 	};
 
+	enum class ScreenStatus {
+		SCREEN_STATUS_NONE,
+		SCREEN_STATUS_PLAYING,
+		SCREEN_STATUS_PAUSE,
+		SCREEN_STATUS_HALT
+	};
+
 private:
 	std::mutex lock;
-	ThreadStatus threadStatus = ThreadStatus::THREAD_NONE;
+	ThreadStatus readStatus = ThreadStatus::THREAD_NONE;
 	ScreenStatus status = ScreenStatus::SCREEN_STATUS_NONE;
 	int preloadLimit = 30;
 	//time in ms
@@ -57,9 +59,10 @@ private:
 	AVCodecContext* videoCodecContext = nullptr;
 	AVCodecContext* audioCodecContext = nullptr;
 	AVPacket* packet = nullptr;
+	AVFrame* frame = nullptr;
 	int videoPreload = 60;
 	std::mutex videoLock;
-	std::list<AVFrame*> videoFrameList;
+	std::list<VideoData> videoFrameList;
 	int audioPreload = 60;
 	std::mutex audioLock;
 	std::list<AVFrame*> audioFrameList;
@@ -117,13 +120,15 @@ public:
 	static std::chrono::microseconds ts_to_microsecond(int64_t ts, int num, int den);
 
 signals:
-	void drawVideoFrame(FrameData data);
+	void drawVideoFrame(VideoData data);
+	void updateScreen(void);
 
 private slots:
 	void clearOnOpen(void);
 	void clearOnClose(void);
 	void setScreenStatus(ScreenStatus s);
-	void onDrawFrame(FrameData data);
+	void onDrawFrame(VideoData data);
+	void onUpdateScreen(void);
 
 public slots:
 	void openFile(QString path);
