@@ -10,6 +10,7 @@ NemoPlayer::NemoPlayer(QWidget *parent)
 	connect(ui.actionOpen, &QAction::triggered, this, &NemoPlayer::onOpenFileAction);
 	connect(ui.actionTest, &QAction::triggered, ui.screen, &ScreenWidget::test);
 	connect(ui.playButton, &QPushButton::clicked, ui.screen, &ScreenWidget::play);
+	connect(ui.actionClose, &QAction::triggered, this, &NemoPlayer::onCloseAction);
 
 	qDebug("ScreenWidget::ScreenWidget");
 	AVHWDeviceType type = AVHWDeviceType::AV_HWDEVICE_TYPE_NONE;
@@ -42,6 +43,11 @@ void NemoPlayer::onOpenFileAction(bool checked)
 	else {
 		QMessageBox::information(this, "File info", "no file selected.", QMessageBox::StandardButton::Ok);
 	}
+}
+
+void NemoPlayer::onCloseAction(bool checked)
+{
+	ui.screen->closeFile();
 }
 
 void NemoPlayer::onSetDeviceType(AVHWDeviceType type)

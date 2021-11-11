@@ -36,5 +36,6 @@ signals:
 public slots:
 	void onDecodeOptionAction(bool checked);
 	void onOpenFileAction(bool checked);
+	void onCloseAction(bool checked);
 	void onSetDeviceType(AVHWDeviceType type);
 };

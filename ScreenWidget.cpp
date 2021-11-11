@@ -51,6 +51,10 @@ void ScreenWidget::clearOnOpen(void)
 		av_frame_free(&frame);
 	if (packet)
 		av_packet_free(&packet);
+	if (sws_ctx) {
+		sws_freeContext(sws_ctx);
+		sws_ctx = nullptr;
+	}
 	if (videoCodecContext)
 		avcodec_free_context(&videoCodecContext);
 	if (audioCodecContext)
@@ -67,17 +71,15 @@ void ScreenWidget::clearOnClose(void)
 		return;
 	}
 
-	//wait for threads exit
 	lock.lock();
 	status = ScreenStatus::SCREEN_STATUS_HALT;
 	readStatus = ThreadStatus::THREAD_HALT;
 	lock.unlock();
 
+	//wait for all work threads exit
 	while (threadCount > 0) {
-		this_thread::sleep_for(chrono::milliseconds(threadInterval));
+		this_thread::sleep_for(chrono::milliseconds(10));
 	}
-
-	lock.lock();
 
 	//clear video frame list
 	while (videoFrameList.size()) {
@@ -94,9 +96,10 @@ void ScreenWidget::clearOnClose(void)
 		audioFrameList.pop_front();
 	}
 
-	videoStreamIndex = -1;
-	audioStreamIndex = -1;
+	//todo: flush decoder
 
+	if (frame)
+		av_frame_free(&frame);
 	if (packet)
 		av_packet_free(&packet);
 	if (videoCodecContext)
@@ -106,7 +109,8 @@ void ScreenWidget::clearOnClose(void)
 	if (formatContext)
 		avformat_close_input(&formatContext);
 
-	lock.unlock();
+	videoStreamIndex = -1;
+	audioStreamIndex = -1;
 }
 
 int ScreenWidget::m_openFile(const QString& path)
@@ -137,14 +141,27 @@ int ScreenWidget::m_openFile(const QString& path)
 		-1, -1, NULL, 0);
 	if (ret >= 0) {
 		videoStreamIndex = ret;
+
 		ret = openCodexContext(&videoCodecContext, formatContext, videoStreamIndex);
 		if (ret < 0) {
 			clearOnOpen();
 			QMessageBox::critical(nullptr, "error", "openCodexContext error", QMessageBox::Ok);
 			return ret;
 		}
+
 		videoWidth = videoCodecContext->width;
 		videoHeight = videoCodecContext->height;
+
+		sws_ctx = sws_getContext(
+			videoWidth, videoHeight, videoCodecContext->pix_fmt,
+			videoWidth, videoHeight, AVPixelFormat::AV_PIX_FMT_RGB24,
+			SWS_BILINEAR, NULL, NULL, NULL);
+
+		if (!sws_ctx) {
+			QMessageBox::critical(nullptr, "error", "sws_getContext error", QMessageBox::Ok);
+			clearOnOpen();
+			return -1;
+		}
 	}
 
 	/* find decoder for the audio stream */
@@ -358,16 +375,6 @@ int ScreenWidget::decodePacket(ScreenWidget* screen)
 			}
 			
 			VideoData data;
-			SwsContext* sws_ctx = sws_getContext(
-				frame->width, frame->height, (AVPixelFormat)frame->format,
-				screen->videoWidth, screen->videoHeight, AVPixelFormat::AV_PIX_FMT_RGB24,
-				SWS_BILINEAR, NULL, NULL, NULL);
-
-			if (!sws_ctx) {
-				qDebug("sws_getContext error");
-				return -1;
-			}
-
 			data.bufSize = av_image_alloc(
 				data.videoData, data.videoLinesize,
 				frame->width, frame->height,
@@ -378,7 +385,7 @@ int ScreenWidget::decodePacket(ScreenWidget* screen)
 				return -1;
 			}
 
-			sws_scale(sws_ctx, (const uint8_t* const*)frame->data,
+			sws_scale(screen->sws_ctx, (const uint8_t* const*)frame->data,
 				frame->linesize, 0, frame->height, data.videoData, data.videoLinesize);
 
 			data.pts = chrono::microseconds(
@@ -726,9 +733,10 @@ void ScreenWidget::openFile(QString path)
 	}
 }
 
-void ScreenWidget::close(void)
+void ScreenWidget::closeFile(void)
 {
 	clearOnClose();
+	clearScreen();
 }
 
 void ScreenWidget::setHWDeviceType(AVHWDeviceType type)
@@ -751,7 +759,9 @@ void ScreenWidget::play(bool checked)
 void ScreenWidget::clearScreen(void)
 {
 	makeCurrent();
-	glClear(GL_COLOR_BUFFER_BIT);
+	uint8_t arr[3] = { 0 };
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB,
+		1, 1, 0, GL_RGB, GL_UNSIGNED_BYTE, arr);
 	update();
 }
 

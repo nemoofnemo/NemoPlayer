@@ -60,6 +60,7 @@ private:
 	AVCodecContext* audioCodecContext = nullptr;
 	AVPacket* packet = nullptr;
 	AVFrame* frame = nullptr;
+	SwsContext* sws_ctx = nullptr;
 	int videoPreload = 60;
 	std::mutex videoLock;
 	std::list<VideoData> videoFrameList;
@@ -134,7 +135,7 @@ private slots:
 
 public slots:
 	void openFile(QString path);
-	void close(void);
+	void closeFile(void);
 	void setHWDeviceType(AVHWDeviceType type);
 	void test(bool checked);
 	void play(bool checked);
