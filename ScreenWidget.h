@@ -92,6 +92,8 @@ private:
 	int openCodexContext(AVCodecContext** pCC, AVFormatContext* pFC, int index);
 	int m_openFile(const QString& path);
 	int m_openFileHW(const QString& path);
+	void clearOnOpen(void);
+	void clearOnClose(void);
 	void initShaderScript(void);
 	bool createProgram(void);
 
@@ -116,7 +118,9 @@ public:
 	explicit ScreenWidget(QWidget* parent);
 	~ScreenWidget();
 
+	static std::chrono::milliseconds ts_to_millisecond(int64_t ts, AVRational time_base);
 	static std::chrono::milliseconds ts_to_millisecond(int64_t ts, int num, int den);
+	static std::chrono::microseconds ts_to_microsecond(int64_t ts, AVRational time_base);
 	static std::chrono::microseconds ts_to_microsecond(int64_t ts, int num, int den);
 
 signals:
@@ -124,8 +128,6 @@ signals:
 	void updateScreen(void);
 
 private slots:
-	void clearOnOpen(void);
-	void clearOnClose(void);
 	void setScreenStatus(ScreenStatus s);
 	void onDrawFrame(VideoData data);
 	void onUpdateScreen(void);
@@ -136,5 +138,5 @@ public slots:
 	void setHWDeviceType(AVHWDeviceType type);
 	void test(bool checked);
 	void play(bool checked);
-	
+	void clearScreen(void);
 };

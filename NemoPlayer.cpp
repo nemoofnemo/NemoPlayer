@@ -37,6 +37,7 @@ void NemoPlayer::onOpenFileAction(bool checked)
 	QString path = QFileDialog::getOpenFileName(this);
 	if (path.length() > 0) {
 		ui.screen->openFile(path);
+		this->setWindowTitle(path);
 	}
 	else {
 		QMessageBox::information(this, "File info", "no file selected.", QMessageBox::StandardButton::Ok);

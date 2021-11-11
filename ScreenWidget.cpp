@@ -116,6 +116,8 @@ int ScreenWidget::m_openFile(const QString& path)
 	}
 
 	int ret = 0;
+
+	readStatus = ThreadStatus::THREAD_NONE;
 	status = ScreenStatus::SCREEN_STATUS_NONE;
 
 	if ((ret = avformat_open_input(&formatContext, path.toStdString().c_str(), NULL, NULL)) < 0) {
@@ -174,9 +176,6 @@ int ScreenWidget::m_openFile(const QString& path)
 		ret = AVERROR(ENOMEM);
 		return ret;
 	}
-
-	ThreadStatus readStatus = ThreadStatus::THREAD_NONE;
-	ScreenStatus status = ScreenStatus::SCREEN_STATUS_NONE;
 
 	//start readThread, videoThread, audioThread here
 	std::thread t(readThread, this);
@@ -383,10 +382,12 @@ int ScreenWidget::decodePacket(ScreenWidget* screen)
 				frame->linesize, 0, frame->height, data.videoData, data.videoLinesize);
 
 			data.pts = chrono::microseconds(
-				ts_to_microsecond(frame->pts, screen->packet->time_base.num, screen->packet->time_base.den)
+				ts_to_microsecond(frame->pts, 
+					screen->formatContext->streams[screen->videoStreamIndex]->time_base)
 			);
 			data.duration = chrono::microseconds(
-				ts_to_microsecond(frame->pkt_dts, screen->packet->time_base.num, screen->packet->time_base.den)
+				ts_to_microsecond(frame->pkt_duration, 
+					screen->formatContext->streams[screen->videoStreamIndex]->time_base)
 			);
 
 			av_frame_unref(frame);
@@ -409,10 +410,22 @@ int ScreenWidget::decodePacket(ScreenWidget* screen)
 	return 0;
 }
 
+std::chrono::milliseconds ScreenWidget::ts_to_millisecond(int64_t ts, AVRational time_base)
+{
+	int64_t arg = 1000 * ts * time_base.num / time_base.den;
+	return std::chrono::milliseconds(arg);
+}
+
 std::chrono::milliseconds ScreenWidget::ts_to_millisecond(int64_t ts, int num, int den)
 {
 	int64_t arg = 1000 * ts * num / den;
 	return std::chrono::milliseconds(arg);
+}
+
+std::chrono::microseconds ScreenWidget::ts_to_microsecond(int64_t ts, AVRational time_base)
+{
+	int64_t arg = 1000000 * ts * time_base.num / time_base.den;
+	return std::chrono::microseconds(arg);
 }
 
 std::chrono::microseconds ScreenWidget::ts_to_microsecond(int64_t ts, int num, int den)
@@ -457,6 +470,9 @@ int ScreenWidget::videoThread(ScreenWidget* screen)
 				if (flag == 1) {
 					this_thread::sleep_for(tmp_time);
 				}
+				else {
+					this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
+				}
 			}
 		}
 		else {
@@ -476,12 +492,30 @@ int ScreenWidget::m_videoFunc(ScreenWidget* screen, std::chrono::microseconds* t
 	int ret = 0;
 	
 	screen->videoLock.lock();
-	if (screen->videoFrameList.size()) {
+	while (screen->videoFrameList.size()) {
 		auto it = screen->videoFrameList.begin();
-		emit screen->drawVideoFrame(*it);
-		*time = chrono::microseconds(20000);
-		screen->videoFrameList.pop_front();
-		ret = 1;
+		auto dt = chrono::duration_cast<chrono::microseconds>(
+			chrono::steady_clock::now() - screen->startTimeStamp);
+		auto current = screen->timeOffset + dt;
+		auto t1 = it->pts;
+		auto t2 = t1 + it->duration;
+
+		if (current >= t1 && current < t2) {
+			emit screen->drawVideoFrame(*it);
+			screen->videoFrameList.pop_front();
+			*time = t2 - current;
+			ret = 1;
+			break;
+		}
+		else if (current < t1) {
+			*time = t1 - current;
+			ret = 1;
+			break;
+		}
+		else {
+			screen->videoFrameList.pop_front();
+			continue;
+		}
 	}
 	screen->videoLock.unlock();
 
@@ -668,13 +702,15 @@ ScreenWidget::~ScreenWidget()
 
 void ScreenWidget::openFile(QString path)
 {
+	clearScreen();
+
 	if (path.size() == 0) {
 		QMessageBox::information(this, "open file", "invalid path", QMessageBox::Ok);
 	}
 
 	if (deviceType == AVHWDeviceType::AV_HWDEVICE_TYPE_NONE) {
 		if (m_openFile(path) == 0) {
-			QMessageBox::information(this, "open file", path, QMessageBox::Ok);
+			//QMessageBox::information(this, "open file", path, QMessageBox::Ok);
 		}
 		else {
 
@@ -692,6 +728,7 @@ void ScreenWidget::openFile(QString path)
 
 void ScreenWidget::close(void)
 {
+	clearOnClose();
 }
 
 void ScreenWidget::setHWDeviceType(AVHWDeviceType type)
@@ -702,7 +739,6 @@ void ScreenWidget::setHWDeviceType(AVHWDeviceType type)
 void ScreenWidget::test(bool checked)
 {
 	qDebug("test triggered");
-	update();
 }
 
 void ScreenWidget::play(bool checked)
@@ -712,6 +748,13 @@ void ScreenWidget::play(bool checked)
 	}
 }
 
+void ScreenWidget::clearScreen(void)
+{
+	makeCurrent();
+	glClear(GL_COLOR_BUFFER_BIT);
+	update();
+}
+
 void ScreenWidget::setScreenStatus(ScreenStatus s)
 {
 	qDebug("setScreenStatus: %d to %d", status, s);
@@ -719,6 +762,15 @@ void ScreenWidget::setScreenStatus(ScreenStatus s)
 	if (s == ScreenStatus::SCREEN_STATUS_PLAYING) {
 		lock.lock();
 		readStatus = ThreadStatus::THREAD_RUN;
+		lock.unlock();
+
+		int cnt = 0;
+		while (cnt < 20 && videoFrameList.size() == 0) {
+			this_thread::sleep_for(chrono::milliseconds(50));
+			cnt++;
+		}
+
+		lock.lock();
 		status = ScreenStatus::SCREEN_STATUS_PLAYING;
 		startTimeStamp = chrono::steady_clock::now();
 		lock.unlock();
