@@ -31,8 +31,8 @@
     <Import Project="$(QtMsBuild)\qt_defaults.props" />
   </ImportGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="QtSettings">
-    <QtInstall>msvc2019_6_1_3</QtInstall>
-    <QtModules>core;openglwidgets;opengl;gui;widgets;concurrent;</QtModules>
+    <QtInstall>6.2.1_msvc2019_64</QtInstall>
+    <QtModules>core;openglwidgets;opengl;gui;widgets;concurrent;multimedia;</QtModules>
     <QtBuildConfig>debug</QtBuildConfig>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'" Label="QtSettings">
@@ -64,6 +64,7 @@
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>D:\ffmpeg\ffmpeg-N-103752-g59719a905c-win64-lgpl-shared\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <DisableSpecificWarnings>26812</DisableSpecificWarnings>
+      <AdditionalOptions>/utf-8 /Zc:__cplusplus %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <AdditionalLibraryDirectories>D:\ffmpeg\ffmpeg-N-103752-g59719a905c-win64-lgpl-shared\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
