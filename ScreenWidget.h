@@ -26,6 +26,13 @@ public:
 		std::chrono::microseconds duration;
 	};
 
+	struct AudioData {
+		uint8_t* audioData = nullptr;
+		int bufSize = 0;
+		std::chrono::microseconds pts;
+		std::chrono::microseconds duration;
+	};
+
 	enum class ThreadStatus {
 		THREAD_NONE,
 		THREAD_RUN,
@@ -50,6 +57,8 @@ private:
 	int threadCount = 0;
 	int videoWidth = 0;
 	int videoHeight = 0;
+	int audioSampleRate = 48000;
+	AVSampleFormat audioFromat = AVSampleFormat::AV_SAMPLE_FMT_FLT;
 	//time offset from beginning of media file.
 	std::chrono::microseconds timeOffset;
 	//startTimeStamp will be set with current time
@@ -68,7 +77,7 @@ private:
 	std::list<VideoData> videoFrameList;
 	int audioPreload = 60;
 	std::mutex audioLock;
-	std::list<AVFrame*> audioFrameList;
+	std::list<AudioData> audioFrameList;
 	int videoStreamIndex = -1;
 	int audioStreamIndex = -1;
 	

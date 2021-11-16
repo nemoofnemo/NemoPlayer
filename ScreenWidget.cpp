@@ -94,9 +94,8 @@ void ScreenWidget::clearOnClose(void)
 
 	//clear audio frame list
 	while (audioFrameList.size()) {
-		AVFrame* frame = *audioFrameList.begin();
-		av_frame_unref(frame);
-		av_frame_free(&frame);
+		auto data = *audioFrameList.begin();
+		av_freep(&data.audioData);
 		audioFrameList.pop_front();
 	}
 
@@ -198,19 +197,20 @@ int ScreenWidget::m_openFile(const QString& path)
 			return ret;
 		}
 
+		av_opt_set_int(swr_ctx, "in_channel_layout", audioCodecContext->channel_layout, 0);
+		av_opt_set_int(swr_ctx, "in_sample_rate", audioCodecContext->sample_rate, 0);
+		av_opt_set_sample_fmt(swr_ctx, "in_sample_fmt", audioCodecContext->sample_fmt, 0);
+
+		av_opt_set_int(swr_ctx, "out_channel_layout", audioCodecContext->channel_layout, 0);
+		av_opt_set_int(swr_ctx, "out_sample_rate", audioSampleRate, 0);
+		av_opt_set_sample_fmt(swr_ctx, "out_sample_fmt", audioFromat, 0);
+
 		if ((ret = swr_init(swr_ctx)) < 0) {
 			QMessageBox::critical(nullptr, "error", "openCodexContext error", QMessageBox::Ok);
 			clearOnOpen();
 			return ret;
 		}
-
-		av_opt_set_int(swr_ctx, "in_channel_layout", videoCodecContext->channel_layout, 0);
-		av_opt_set_int(swr_ctx, "in_sample_rate", videoCodecContext->sample_rate, 0);
-		av_opt_set_sample_fmt(swr_ctx, "in_sample_fmt", videoCodecContext->sample_fmt, 0);
-
-		av_opt_set_int(swr_ctx, "out_channel_layout", videoCodecContext->channel_layout, 0);
-		av_opt_set_int(swr_ctx, "out_sample_rate", videoCodecContext->sample_rate, 0);
-		av_opt_set_sample_fmt(swr_ctx, "out_sample_fmt", AVSampleFormat::AV_SAMPLE_FMT_DBL, 0);
+		
 	}
 
 	packet = av_packet_alloc();
@@ -234,6 +234,8 @@ int ScreenWidget::m_openFile(const QString& path)
 	t.detach();
 	std::thread t2(videoThread, this);
 	t2.detach();
+	std::thread t3(audioThread, this);
+	t3.detach();
 
 	return 0;
 }
@@ -330,12 +332,12 @@ int ScreenWidget::readThread(ScreenWidget* screen)
 	qDebug("readThread start");
 	ThreadStatus status = ThreadStatus::THREAD_NONE;
 	int ret = 0;
-	/*auto funcFlag = [screen]() {
-		return (screen->videoFrameList.size() < screen->preloadLimit) || (screen->audioFrameList.size() < screen->preloadLimit);
-	};*/
 	auto funcFlag = [screen]() {
-		return screen->videoFrameList.size() < screen->preloadLimit;
+		return (screen->videoFrameList.size() < screen->preloadLimit) || (screen->audioFrameList.size() < screen->preloadLimit);
 	};
+	/*auto funcFlag = [screen]() {
+		return screen->videoFrameList.size() < screen->preloadLimit;
+	};*/
 
 	for (;;) {
 		screen->lock.lock();
@@ -418,6 +420,7 @@ int ScreenWidget::decodePacket(ScreenWidget* screen)
 
 			if (data.bufSize < 0) {
 				qDebug("video av_image_alloc error");
+				av_frame_unref(frame);
 				return -1;
 			}
 
@@ -464,7 +467,62 @@ int ScreenWidget::decodePacket(ScreenWidget* screen)
 				}
 			}
 
+			uint8_t** dst_data = nullptr;
+			int dst_linesize = 0;
+			auto dst_nb_samples = av_rescale_rnd(
+				frame->nb_samples,
+				screen->audioSampleRate, frame->sample_rate, AV_ROUND_UP);
+			auto dst_nb_channels = 
+				av_get_channel_layout_nb_channels(screen->audioCodecContext->channel_layout);
+
+			ret = av_samples_alloc_array_and_samples(&dst_data, &dst_linesize, 
+				dst_nb_channels, dst_nb_samples, 
+				screen->audioFromat, 0);
+			if (ret < 0) {
+				av_frame_unref(frame);
+				qDebug("audio av_samples_alloc_array_and_samples error");
+				return -1;
+			}
+
+			ret = swr_convert(screen->swr_ctx, dst_data, dst_nb_samples, 
+				(const uint8_t**)frame->data, frame->nb_samples);
+			if (ret < 0) {
+				av_frame_unref(frame);
+				if (dst_data) {
+					av_freep(&dst_data[0]);
+					av_freep(&dst_data);
+				}
+				qDebug("audio swr_convert error");
+				return -1;
+			}
+
+			auto dst_bufsize = av_samples_get_buffer_size(&dst_linesize, dst_nb_channels,
+				ret, screen->audioFromat, 1);
+			if (ret < 0) {
+				av_frame_unref(frame);
+				if (dst_data) {
+					av_freep(&dst_data[0]);
+					av_freep(&dst_data);
+				}
+				qDebug("audio av_samples_get_buffer_size error");
+				return -1;
+			}
+
+			AudioData data;
+			data.audioData = dst_data[0];
+			data.bufSize = dst_bufsize;
+			data.pts = chrono::microseconds(frame->pts);
+			data.duration = chrono::microseconds(frame->pkt_duration);
+
+			screen->audioLock.lock();
+			screen->audioFrameList.push_back(data);
+			screen->audioLock.unlock();
+
 			av_frame_unref(frame);
+			if (dst_data) {
+				//av_freep(&dst_data[0]);
+				av_freep(&dst_data);
+			}
 		}
 
 		return 0;
@@ -602,6 +660,7 @@ int ScreenWidget::audioThread(ScreenWidget* screen)
 	format.setChannelCount(1);
 	format.setSampleFormat(QAudioFormat::Float);
 	QAudioSink audioSink(format, nullptr);
+	auto outputDevice = audioSink.start();
 
 	for (;;) {
 		screen->lock.lock();
@@ -649,36 +708,6 @@ int ScreenWidget::audioThread(ScreenWidget* screen)
 int ScreenWidget::m_audioFunc(ScreenWidget* screen, std::chrono::microseconds* time)
 {
 	int ret = 0;
-
-	while (screen->audioFrameList.size() > 0) {
-		auto frame = *(screen->audioFrameList.begin());
-		auto dt = chrono::duration_cast<chrono::microseconds>(chrono::steady_clock::now() - screen->startTimeStamp);
-		auto target_time = screen->timeOffset + dt;
-		chrono::microseconds t1(ts_to_microsecond(
-			frame->pts,
-			screen->audioCodecContext->time_base.num,
-			screen->audioCodecContext->time_base.den
-		));
-		chrono::microseconds t2(ts_to_microsecond(
-			frame->pts + frame->pkt_duration,
-			screen->audioCodecContext->time_base.num,
-			screen->audioCodecContext->time_base.den
-		));
-
-		if (target_time >= t1 && target_time < t2) {
-
-		}
-		else if (target_time < t1) {
-			*time = t1 - target_time;
-			return 1;
-		}
-		else {
-			av_frame_unref(frame);
-			av_frame_free(&frame);
-			screen->audioFrameList.pop_front();
-			continue;
-		}
-	}
 
 	return ret;
 }
@@ -816,19 +845,19 @@ void ScreenWidget::setHWDeviceType(AVHWDeviceType type)
 void ScreenWidget::test(bool checked)
 {
 	qDebug("test triggered");
-	//QFile* sourceFile = new QFile;   // class member.
-	//QAudioSink* audio; // class member.
-	//sourceFile->setFileName("D:/mov/audioTest");
-	//sourceFile->open(QIODevice::ReadOnly);
+	QFile* sourceFile = new QFile;   // class member.
+	QAudioSink* audio; // class member.
+	sourceFile->setFileName("D:/mov/audioTest");
+	sourceFile->open(QIODevice::ReadOnly);
 
-	//QAudioFormat format;
-	//// Set up the format, eg.
-	//format.setSampleRate(48000);
-	//format.setChannelCount(1);
-	//format.setSampleFormat(QAudioFormat::Float);
+	QAudioFormat format;
+	// Set up the format, eg.
+	format.setSampleRate(48000);
+	format.setChannelCount(1);
+	format.setSampleFormat(QAudioFormat::Float);
 
-	//audio = new QAudioSink(format, this);
-	//audio->start(sourceFile);
+	audio = new QAudioSink(format, this);
+	audio->start(sourceFile);
 }
 
 void ScreenWidget::play(bool checked)
