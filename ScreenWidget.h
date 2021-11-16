@@ -6,6 +6,7 @@
 #include <chrono>
 #include <list>
 #include <QWidget>
+#include <QtMultimedia>
 #include <QOpenGLWidget>
 #include <QOpenGLFunctions_3_3_Core>
 #include <QMEssageBox>
@@ -61,6 +62,7 @@ private:
 	AVPacket* packet = nullptr;
 	AVFrame* frame = nullptr;
 	SwsContext* sws_ctx = nullptr;
+	SwrContext* swr_ctx = nullptr;
 	int videoPreload = 60;
 	std::mutex videoLock;
 	std::list<VideoData> videoFrameList;
