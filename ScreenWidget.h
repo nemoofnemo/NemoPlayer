@@ -51,7 +51,7 @@ private:
 	std::mutex lock;
 	ThreadStatus readStatus = ThreadStatus::THREAD_NONE;
 	ScreenStatus status = ScreenStatus::SCREEN_STATUS_NONE;
-	int preloadLimit = 30;
+	int preloadLimit = 10;
 	//time in ms
 	int threadInterval = 1;
 	int threadCount = 0;
@@ -111,14 +111,15 @@ private:
 
 	//read frame from file.
 	static int readThread(ScreenWidget* screen);
-	static int decodePacket(ScreenWidget* screen);
+	static int decodeVideo(ScreenWidget* screen);
+	static int decodeAudio(ScreenWidget* screen);
 
 	//video display thread
 	static int videoThread(ScreenWidget* screen);
 	static int m_videoFunc(ScreenWidget* screen, std::chrono::microseconds* time);
 	//audio thread
 	static int audioThread(ScreenWidget* screen);
-	static int m_audioFunc(ScreenWidget* screen, std::chrono::microseconds* time);
+	static int m_audioFunc(ScreenWidget* screen, QIODevice* device, std::chrono::microseconds* time);
 
 protected:
 	void initializeGL(void) override;

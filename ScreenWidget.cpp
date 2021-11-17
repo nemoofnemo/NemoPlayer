@@ -174,6 +174,9 @@ int ScreenWidget::m_openFile(const QString& path)
 			return -1;
 		}
 	}
+	else {
+		qDebug("no video");
+	}
 
 	/* find decoder for the audio stream */
 	ret = av_find_best_stream(
@@ -191,10 +194,9 @@ int ScreenWidget::m_openFile(const QString& path)
 
 		swr_ctx = swr_alloc();
 		if (!swr_ctx) {
-			qDebug("Could not allocate resampler context");
-			ret = AVERROR(ENOMEM);
+			QMessageBox::critical(nullptr, "error", "Could not allocate resampler context", QMessageBox::Ok);
 			clearOnOpen();
-			return ret;
+			return AVERROR(ENOMEM);
 		}
 
 		av_opt_set_int(swr_ctx, "in_channel_layout", audioCodecContext->channel_layout, 0);
@@ -210,7 +212,9 @@ int ScreenWidget::m_openFile(const QString& path)
 			clearOnOpen();
 			return ret;
 		}
-		
+	}
+	else {
+		qDebug("no audio");
 	}
 
 	packet = av_packet_alloc();
@@ -232,10 +236,16 @@ int ScreenWidget::m_openFile(const QString& path)
 	//start readThread, videoThread, audioThread here
 	std::thread t(readThread, this);
 	t.detach();
-	std::thread t2(videoThread, this);
-	t2.detach();
-	std::thread t3(audioThread, this);
-	t3.detach();
+
+	if(videoCodecContext){
+		std::thread t2(videoThread, this);
+		t2.detach();
+	}
+
+	if (audioCodecContext) {
+		std::thread t3(audioThread, this);
+		t3.detach();
+	}
 
 	return 0;
 }
@@ -359,8 +369,19 @@ int ScreenWidget::readThread(ScreenWidget* screen)
 			//read frame here
 			if (funcFlag()) {
 				if (av_read_frame(screen->formatContext, screen->packet) == 0) {
-					ret = ScreenWidget::decodePacket(screen);
+					if (screen->packet->stream_index == screen->videoStreamIndex) {
+						ret = decodeVideo(screen);
+					}
+					else if (screen->packet->stream_index == screen->audioStreamIndex) {
+						ret = decodeAudio(screen);
+					}
+					else {
+						ret = -1;
+					}
 					av_packet_unref(screen->packet);
+					if (ret < 0) {
+						this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
+					}
 				}
 				else {
 					this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
@@ -382,153 +403,151 @@ int ScreenWidget::readThread(ScreenWidget* screen)
 	return ret;
 }
 
-int ScreenWidget::decodePacket(ScreenWidget* screen)
+int ScreenWidget::decodeVideo(ScreenWidget* screen)
 {
-	int ret = 0;
-
-	if (screen->packet->stream_index == screen->videoStreamIndex) {
-		ret = avcodec_send_packet(screen->videoCodecContext, screen->packet);
-		if (ret < 0) {
-			qDebug("video avcodec_send_packet error");
-			//char log[512] = { 0 };
-			//av_strerror(ret, log, 512);
-			//qDebug(log);
-			return -1;
-		}
-
-		while (true) {
-			auto frame = screen->frame;
-
-			ret = avcodec_receive_frame(screen->videoCodecContext, frame);
-			if (ret < 0) {
-				// those two return values are special and mean there is no output
-				// frame available, but there were no errors during decoding
-				if (ret == AVERROR_EOF || ret == AVERROR(EAGAIN)) {
-					return 0;
-				}
-				else {
-					qDebug("video avcodec_receive_frame error");
-					return -1;
-				}
-			}
-			
-			VideoData data;
-			data.bufSize = av_image_alloc(
-				data.videoData, data.videoLinesize,
-				frame->width, frame->height,
-				AVPixelFormat::AV_PIX_FMT_RGB24, 1);
-
-			if (data.bufSize < 0) {
-				qDebug("video av_image_alloc error");
-				av_frame_unref(frame);
-				return -1;
-			}
-
-			sws_scale(screen->sws_ctx, (const uint8_t* const*)frame->data,
-				frame->linesize, 0, frame->height, data.videoData, data.videoLinesize);
-
-			data.pts = chrono::microseconds(
-				ts_to_microsecond(frame->pts, 
-					screen->formatContext->streams[screen->videoStreamIndex]->time_base)
-			);
-			data.duration = chrono::microseconds(
-				ts_to_microsecond(frame->pkt_duration, 
-					screen->formatContext->streams[screen->videoStreamIndex]->time_base)
-			);
-
-			av_frame_unref(frame);
-
-			screen->videoLock.lock();
-			screen->videoFrameList.push_back(data);
-			screen->videoLock.unlock();
-		}
-
-		return 0;
+	int ret = avcodec_send_packet(screen->videoCodecContext, screen->packet);
+	if (ret < 0) {
+		qDebug("video avcodec_send_packet error");
+		//char log[512] = { 0 };
+		//av_strerror(ret, log, 512);
+		//qDebug(log);
+		return -1;
 	}
-	else if (screen->packet->stream_index == screen->audioStreamIndex) {
-		ret = avcodec_send_packet(screen->audioCodecContext, screen->packet);
+
+	while (true) {
+		auto frame = screen->frame;
+
+		ret = avcodec_receive_frame(screen->videoCodecContext, frame);
 		if (ret < 0) {
-			qDebug("audio avcodec_send_packet error");
+			// those two return values are special and mean there is no output
+			// frame available, but there were no errors during decoding
+			if (ret == AVERROR_EOF || ret == AVERROR(EAGAIN)) {
+				return 0;
+			}
+			else {
+				qDebug("video avcodec_receive_frame error");
+				return -1;
+			}
+		}
+
+		VideoData data;
+		data.bufSize = av_image_alloc(
+			data.videoData, data.videoLinesize,
+			frame->width, frame->height,
+			AVPixelFormat::AV_PIX_FMT_RGB24, 1);
+
+		if (data.bufSize < 0) {
+			qDebug("video av_image_alloc error");
+			av_frame_unref(frame);
 			return -1;
 		}
 
-		while (true) {
-			auto frame = screen->frame;
-			ret = avcodec_receive_frame(screen->videoCodecContext, frame);
-			if (ret < 0) {
-				// those two return values are special and mean there is no output
-				// frame available, but there were no errors during decoding
-				if (ret == AVERROR_EOF || ret == AVERROR(EAGAIN)) {
-					return 0;
-				}
-				else {
-					qDebug("audio avcodec_receive_frame error");
-					return -1;
-				}
+		sws_scale(screen->sws_ctx, (const uint8_t* const*)frame->data,
+			frame->linesize, 0, frame->height, data.videoData, data.videoLinesize);
+
+		data.pts = chrono::microseconds(
+			ts_to_microsecond(frame->pts,
+				screen->formatContext->streams[screen->videoStreamIndex]->time_base)
+		);
+		data.duration = chrono::microseconds(
+			ts_to_microsecond(frame->pkt_duration,
+				screen->formatContext->streams[screen->videoStreamIndex]->time_base)
+		);
+
+		av_frame_unref(frame);
+
+		screen->videoLock.lock();
+		screen->videoFrameList.push_back(data);
+		screen->videoLock.unlock();
+	}
+
+	return 0;
+}
+
+int ScreenWidget::decodeAudio(ScreenWidget* screen)
+{
+	int ret = avcodec_send_packet(screen->audioCodecContext, screen->packet);
+	if (ret < 0) {
+		qDebug("audio avcodec_send_packet error: %d", ret);
+		return -1;
+	}
+
+	while (true) {
+		auto frame = screen->frame;
+		ret = avcodec_receive_frame(screen->audioCodecContext, frame);
+		if (ret < 0) {
+			// those two return values are special and mean there is no output
+			// frame available, but there were no errors during decoding
+			if (ret == AVERROR_EOF || ret == AVERROR(EAGAIN)) {
+				return 0;
 			}
-
-			uint8_t** dst_data = nullptr;
-			int dst_linesize = 0;
-			auto dst_nb_samples = av_rescale_rnd(
-				frame->nb_samples,
-				screen->audioSampleRate, frame->sample_rate, AV_ROUND_UP);
-			auto dst_nb_channels = 
-				av_get_channel_layout_nb_channels(screen->audioCodecContext->channel_layout);
-
-			ret = av_samples_alloc_array_and_samples(&dst_data, &dst_linesize, 
-				dst_nb_channels, dst_nb_samples, 
-				screen->audioFromat, 0);
-			if (ret < 0) {
-				av_frame_unref(frame);
-				qDebug("audio av_samples_alloc_array_and_samples error");
+			else {
+				qDebug("audio avcodec_receive_frame error");
 				return -1;
 			}
+		}
 
-			ret = swr_convert(screen->swr_ctx, dst_data, dst_nb_samples, 
-				(const uint8_t**)frame->data, frame->nb_samples);
-			if (ret < 0) {
-				av_frame_unref(frame);
-				if (dst_data) {
-					av_freep(&dst_data[0]);
-					av_freep(&dst_data);
-				}
-				qDebug("audio swr_convert error");
-				return -1;
-			}
+		uint8_t** dst_data = nullptr;
+		int dst_linesize = 0;
+		auto dst_nb_samples = av_rescale_rnd(
+			frame->nb_samples,
+			screen->audioSampleRate, frame->sample_rate, AV_ROUND_UP);
+		/*auto dst_nb_channels =
+			av_get_channel_layout_nb_channels(screen->audioCodecContext->channel_layout);*/
 
-			auto dst_bufsize = av_samples_get_buffer_size(&dst_linesize, dst_nb_channels,
-				ret, screen->audioFromat, 1);
-			if (ret < 0) {
-				av_frame_unref(frame);
-				if (dst_data) {
-					av_freep(&dst_data[0]);
-					av_freep(&dst_data);
-				}
-				qDebug("audio av_samples_get_buffer_size error");
-				return -1;
-			}
+		ret = av_samples_alloc_array_and_samples(&dst_data, &dst_linesize,
+			screen->audioCodecContext->channels, dst_nb_samples,
+			screen->audioFromat, 0);
+		if (ret < 0) {
+			av_frame_unref(frame);
+			qDebug("audio av_samples_alloc_array_and_samples error");
+			return -1;
+		}
 
-			AudioData data;
-			data.audioData = dst_data[0];
-			data.bufSize = dst_bufsize;
-			data.pts = chrono::microseconds(frame->pts);
-			data.duration = chrono::microseconds(frame->pkt_duration);
-
-			screen->audioLock.lock();
-			screen->audioFrameList.push_back(data);
-			screen->audioLock.unlock();
-
+		ret = swr_convert(screen->swr_ctx, dst_data, dst_nb_samples,
+			(const uint8_t**)frame->data, frame->nb_samples);
+		if (ret < 0) {
 			av_frame_unref(frame);
 			if (dst_data) {
-				//av_freep(&dst_data[0]);
+				av_freep(&dst_data[0]);
 				av_freep(&dst_data);
 			}
+			qDebug("audio swr_convert error");
+			return -1;
 		}
 
-		return 0;
-	}
-	else {
-		return -1;
+		auto dst_bufsize = av_samples_get_buffer_size(&dst_linesize, 
+			screen->audioCodecContext->channels,
+			ret, screen->audioFromat, 1);
+		if (dst_bufsize < 0) {
+			av_frame_unref(frame);
+			if (dst_data) {
+				av_freep(&dst_data[0]);
+				av_freep(&dst_data);
+			}
+			qDebug("audio av_samples_get_buffer_size error");
+			return -1;
+		}
+		
+		AudioData data;
+		data.audioData = dst_data[0];
+		data.bufSize = dst_bufsize;
+		data.pts = chrono::microseconds(
+			ts_to_microsecond(frame->pts,
+				screen->formatContext->streams[screen->audioStreamIndex]->time_base));
+		data.duration = chrono::microseconds(
+			ts_to_microsecond(frame->pkt_duration,
+				screen->formatContext->streams[screen->audioStreamIndex]->time_base));
+
+		screen->audioLock.lock();
+		screen->audioFrameList.push_back(data);
+		screen->audioLock.unlock();
+
+		av_frame_unref(frame);
+		if (dst_data) {
+			//av_freep(&dst_data[0]);
+			av_freep(&dst_data);
+		}
 	}
 
 	return 0;
@@ -637,6 +656,7 @@ int ScreenWidget::m_videoFunc(ScreenWidget* screen, std::chrono::microseconds* t
 			break;
 		}
 		else {
+			emit screen->drawVideoFrame(*it);
 			screen->videoFrameList.pop_front();
 			continue;
 		}
@@ -657,7 +677,7 @@ int ScreenWidget::audioThread(ScreenWidget* screen)
 	chrono::microseconds tmp_time(0);
 	QAudioFormat format;
 	format.setSampleRate(screen->audioCodecContext->sample_rate);
-	format.setChannelCount(1);
+	format.setChannelCount(screen->audioCodecContext->channels);
 	format.setSampleFormat(QAudioFormat::Float);
 	QAudioSink audioSink(format, nullptr);
 	auto outputDevice = audioSink.start();
@@ -684,7 +704,7 @@ int ScreenWidget::audioThread(ScreenWidget* screen)
 				continue;
 			}
 			else {
-				flag = m_audioFunc(screen, &tmp_time);
+				flag = m_audioFunc(screen, outputDevice, &tmp_time);
 				if (flag == 1) {
 					this_thread::sleep_for(tmp_time);
 				}
@@ -705,9 +725,40 @@ int ScreenWidget::audioThread(ScreenWidget* screen)
 	return ret;
 }
 
-int ScreenWidget::m_audioFunc(ScreenWidget* screen, std::chrono::microseconds* time)
+int ScreenWidget::m_audioFunc(ScreenWidget* screen, QIODevice* device, std::chrono::microseconds* time)
 {
 	int ret = 0;
+
+	screen->audioLock.lock();
+	while (screen->audioFrameList.size()) {
+		auto it = screen->audioFrameList.begin();
+		auto dt = chrono::duration_cast<chrono::microseconds>(
+			chrono::steady_clock::now() - screen->startTimeStamp);
+		auto current = screen->timeOffset + dt;
+		auto t1 = it->pts;
+		auto t2 = t1 + it->duration;
+
+		if (current >= t1 && current < t2) {
+			/*while (!device->waitForBytesWritten(-1)) {
+				continue;
+			}*/
+			device->write((char*)(it->audioData), it->bufSize);
+			screen->audioFrameList.pop_front();
+			*time = t2 - current;
+			ret = 1;
+			break;
+		}
+		else if (current < t1) {
+			*time = t1 - current;
+			ret = 1;
+			break;
+		}
+		else {
+			screen->audioFrameList.pop_front();
+			continue;
+		}
+	}
+	screen->audioLock.unlock();
 
 	return ret;
 }
@@ -845,19 +896,19 @@ void ScreenWidget::setHWDeviceType(AVHWDeviceType type)
 void ScreenWidget::test(bool checked)
 {
 	qDebug("test triggered");
-	QFile* sourceFile = new QFile;   // class member.
-	QAudioSink* audio; // class member.
-	sourceFile->setFileName("D:/mov/audioTest");
-	sourceFile->open(QIODevice::ReadOnly);
+	//QFile* sourceFile = new QFile;   // class member.
+	//QAudioSink* audio; // class member.
+	//sourceFile->setFileName("D:/mov/audioTest");
+	//sourceFile->open(QIODevice::ReadOnly);
 
-	QAudioFormat format;
-	// Set up the format, eg.
-	format.setSampleRate(48000);
-	format.setChannelCount(1);
-	format.setSampleFormat(QAudioFormat::Float);
+	//QAudioFormat format;
+	//// Set up the format, eg.
+	//format.setSampleRate(48000);
+	//format.setChannelCount(1);
+	//format.setSampleFormat(QAudioFormat::Float);
 
-	audio = new QAudioSink(format, this);
-	audio->start(sourceFile);
+	//audio = new QAudioSink(format, this);
+	//audio->start(sourceFile);
 }
 
 void ScreenWidget::play(bool checked)
@@ -885,8 +936,9 @@ void ScreenWidget::setScreenStatus(ScreenStatus s)
 		readStatus = ThreadStatus::THREAD_RUN;
 		lock.unlock();
 
+		qDebug("waiting for preload.");
 		int cnt = 0;
-		while (cnt < 20 && videoFrameList.size() == 0) {
+		while (cnt < 20 && (videoFrameList.size() == 0 || audioFrameList.size() == 0)) {
 			this_thread::sleep_for(chrono::milliseconds(50));
 			cnt++;
 		}
