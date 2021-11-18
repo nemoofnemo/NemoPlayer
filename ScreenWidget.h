@@ -76,7 +76,7 @@ private:
 	int videoPreload = 10;
 	std::mutex videoLock;
 	std::list<VideoData> videoFrameList;
-	int audioPreload = 10;
+	int audioPreload = 50;
 	std::mutex audioLock;
 	std::list<AudioData> audioFrameList;
 	int videoStreamIndex = -1;

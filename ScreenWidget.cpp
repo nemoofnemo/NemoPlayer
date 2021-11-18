@@ -688,12 +688,10 @@ int ScreenWidget::audioThread(ScreenWidget* screen)
 	int flag = 0;
 	ScreenStatus status = ScreenStatus::SCREEN_STATUS_NONE;
 	chrono::microseconds tmp_time(0);
-	auto channels = 
-		av_get_channel_layout_nb_channels(screen->audioCodecContext->channel_layout);
 
 	QAudioFormat format;
 	format.setSampleRate(screen->audioSampleRate);
-	format.setChannelCount(channels);
+	format.setChannelCount(screen->audioChannels);
 	format.setSampleFormat(QAudioFormat::SampleFormat::Float);
 
 	QAudioSink audioSink(format, nullptr);
@@ -702,7 +700,7 @@ int ScreenWidget::audioThread(ScreenWidget* screen)
 	qDebug(
 		"audioThread start:\n\t"
 		"sample rate=%d, channels=%d", 
-		screen->audioSampleRate, channels);
+		screen->audioSampleRate, screen->audioChannels);
 
 	for (;;) {
 		screen->lock.lock();
@@ -726,13 +724,28 @@ int ScreenWidget::audioThread(ScreenWidget* screen)
 				continue;
 			}
 			else {
-				flag = m_audioFunc(screen, outputDevice, &tmp_time);
+				/*flag = m_audioFunc(screen, outputDevice, &tmp_time);
 				if (flag == 1) {
 					this_thread::sleep_for(tmp_time);
 				}
 				else {
 					this_thread::sleep_for(chrono::milliseconds(0));
+				}*/
+				screen->audioLock.lock();
+				if (screen->audioFrameList.size()) {
+					auto dt = chrono::duration_cast<chrono::microseconds>(
+						chrono::steady_clock::now() - screen->startTimeStamp);
+					auto current = screen->timeOffset + dt;
+					auto it = screen->audioFrameList.begin();
+					if (current >= it->pts) 
+						outputDevice->write((char*)it->audioData, it->bufSize);
+						av_free(it->audioData);
+						tmp_time = chrono::microseconds(it->duration);
+						screen->audioFrameList.pop_front();
+					}
 				}
+				screen->audioLock.unlock();
+				this_thread::sleep_for(tmp_time);
 			}
 		}
 		else {
@@ -753,9 +766,10 @@ int ScreenWidget::m_audioFunc(ScreenWidget* screen, QIODevice* device, std::chro
 
 	screen->audioLock.lock();
 	while (screen->audioFrameList.size()) {
-		/*auto it = screen->audioFrameList.begin();
+		auto start = chrono::steady_clock::now();
+		auto it = screen->audioFrameList.begin();
 		auto dt = chrono::duration_cast<chrono::microseconds>(
-			chrono::steady_clock::now() - screen->startTimeStamp);
+			start - screen->startTimeStamp);
 		auto current = screen->timeOffset + dt;
 		auto t1 = it->pts;
 		auto t2 = t1 + it->duration;
@@ -763,8 +777,8 @@ int ScreenWidget::m_audioFunc(ScreenWidget* screen, QIODevice* device, std::chro
 		if (current >= t1 && current < t2) {
 			device->write((char*)(it->audioData), it->bufSize);
 			av_free(it->audioData);
+			*time = it->duration;
 			screen->audioFrameList.pop_front();
-			*time = t2 - current;
 			ret = 1;
 			break;
 		}
@@ -777,14 +791,14 @@ int ScreenWidget::m_audioFunc(ScreenWidget* screen, QIODevice* device, std::chro
 			av_free(it->audioData);
 			screen->audioFrameList.pop_front();
 			continue;
-		}*/
-		auto it = screen->audioFrameList.begin();
+		}
+		/*auto it = screen->audioFrameList.begin();
 		device->write((char*)(it->audioData), it->bufSize);
 		*time = it->duration;
 		av_free(it->audioData);
 		screen->audioFrameList.pop_front();
 		ret = 1;
-		break;
+		break;*/
 	}
 	screen->audioLock.unlock();
 
