@@ -5,6 +5,7 @@
 #include <mutex>
 #include <chrono>
 #include <list>
+#include <fstream>
 #include <QWidget>
 #include <QtMultimedia>
 #include <QOpenGLWidget>
@@ -51,13 +52,13 @@ private:
 	std::mutex lock;
 	ThreadStatus readStatus = ThreadStatus::THREAD_NONE;
 	ScreenStatus status = ScreenStatus::SCREEN_STATUS_NONE;
-	int preloadLimit = 10;
 	//time in ms
 	int threadInterval = 1;
 	int threadCount = 0;
 	int videoWidth = 0;
 	int videoHeight = 0;
 	int audioSampleRate = 48000;
+	int audioChannels = 0;
 	AVSampleFormat audioFromat = AVSampleFormat::AV_SAMPLE_FMT_FLT;
 	//time offset from beginning of media file.
 	std::chrono::microseconds timeOffset;
@@ -72,10 +73,10 @@ private:
 	AVFrame* frame = nullptr;
 	SwsContext* sws_ctx = nullptr;
 	SwrContext* swr_ctx = nullptr;
-	int videoPreload = 60;
+	int videoPreload = 10;
 	std::mutex videoLock;
 	std::list<VideoData> videoFrameList;
-	int audioPreload = 60;
+	int audioPreload = 10;
 	std::mutex audioLock;
 	std::list<AudioData> audioFrameList;
 	int videoStreamIndex = -1;
