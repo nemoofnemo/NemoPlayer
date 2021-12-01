@@ -99,6 +99,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="DecodeOption.cpp" />
+    <ClCompile Include="NemoAudioDevice.cpp" />
     <ClCompile Include="ScreenWidget.cpp" />
     <QtRcc Include="NemoPlayer.qrc" />
     <QtUic Include="DecodeOption.ui" />
@@ -111,6 +112,7 @@
     <QtMoc Include="ScreenWidget.h" />
   </ItemGroup>
   <ItemGroup>
+    <QtMoc Include="NemoAudioDevice.h" />
     <QtMoc Include="DecodeOption.h" />
     <ClInclude Include="FFmpegHeader.h" />
   </ItemGroup>

@@ -46,12 +46,18 @@
     <ClCompile Include="DecodeOption.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="NemoAudioDevice.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="ScreenWidget.h">
       <Filter>Header Files</Filter>
     </QtMoc>
     <QtMoc Include="DecodeOption.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="NemoAudioDevice.h">
       <Filter>Header Files</Filter>
     </QtMoc>
   </ItemGroup>

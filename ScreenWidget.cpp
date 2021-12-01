@@ -51,6 +51,19 @@ void ScreenWidget::clearOnOpen(void)
 		av_frame_free(&frame);
 	if (packet)
 		av_packet_free(&packet);
+	if (audioSink) {
+		audioSink->stop();
+		delete audioSink;
+		audioSink = nullptr;
+	}
+	if (audioDevice) {
+		delete audioDevice;
+		audioDevice = nullptr;
+	}
+	if (audioFormat) {
+		delete audioFormat;
+		audioFormat = nullptr;
+	}
 	if (swr_ctx) {
 		swr_free(&swr_ctx);
 		swr_ctx = nullptr;
@@ -92,19 +105,25 @@ void ScreenWidget::clearOnClose(void)
 		videoFrameList.pop_front();
 	}
 
-	//clear audio frame list
-	while (audioFrameList.size()) {
-		auto data = *audioFrameList.begin();
-		av_freep(&data.audioData);
-		audioFrameList.pop_front();
-	}
-
 	//todo: flush decoder
 
 	if (frame)
 		av_frame_free(&frame);
 	if (packet)
 		av_packet_free(&packet);
+	if (audioSink) {
+		audioSink->stop();
+		delete audioSink;
+		audioSink = nullptr;
+	}
+	if (audioDevice) {
+		delete audioDevice;
+		audioDevice = nullptr;
+	}
+	if (audioFormat) {
+		delete audioFormat;
+		audioFormat = nullptr;
+	}
 	if (swr_ctx) {
 		swr_free(&swr_ctx);
 		swr_ctx = nullptr;
@@ -215,6 +234,15 @@ int ScreenWidget::m_openFile(const QString& path)
 			clearOnOpen();
 			return ret;
 		}
+
+		audioFormat = new QAudioFormat;
+		audioFormat->setSampleRate(audioSampleRate);
+		audioFormat->setChannelCount(audioChannels);
+		audioFormat->setSampleFormat(QAudioFormat::SampleFormat::Float);
+		audioSink = new QAudioSink(*audioFormat, nullptr);
+		audioDevice = new NemoAudioDevice(nullptr);
+		audioSink->start(audioDevice);
+		audioSink->suspend();
 	}
 	else {
 		qDebug("no audio");
@@ -245,10 +273,10 @@ int ScreenWidget::m_openFile(const QString& path)
 		t2.detach();
 	}
 
-	if (audioCodecContext) {
+	/*if (audioCodecContext) {
 		std::thread t3(audioThread, this);
 		t3.detach();
-	}
+	}*/
 
 	return 0;
 }
@@ -348,10 +376,10 @@ int ScreenWidget::readThread(ScreenWidget* screen)
 
 	auto funcFlag = [screen]() {
 		if (screen->audioCodecContext && screen->videoCodecContext) {
-			return (screen->videoFrameList.size() < screen->videoPreload) || (screen->audioFrameList.size() < screen->audioPreload);
+			return (screen->videoFrameList.size() < screen->videoPreload);
 		}
 		else if (screen->audioCodecContext && !screen->videoCodecContext) {
-			return screen->audioFrameList.size() < screen->audioPreload;
+			return true;
 		}
 		else if (!screen->audioCodecContext && screen->videoCodecContext) {
 			return screen->videoFrameList.size() < screen->videoPreload;
@@ -544,7 +572,7 @@ int ScreenWidget::decodeAudio(ScreenWidget* screen)
 			return -1;
 		}
 		
-		AudioData data;
+		/*AudioData data;
 		data.audioData = dst_data[0];
 		data.bufSize = dst_bufsize;
 		data.pts = chrono::microseconds(
@@ -556,7 +584,10 @@ int ScreenWidget::decodeAudio(ScreenWidget* screen)
 
 		screen->audioLock.lock();
 		screen->audioFrameList.push_back(data);
-		screen->audioLock.unlock();
+		screen->audioLock.unlock();*/
+
+		screen->audioDevice->write((char*)dst_data[0], dst_bufsize);
+		av_freep(&dst_data[0]);
 
 		av_frame_unref(frame);
 		if (dst_data) {
@@ -677,130 +708,6 @@ int ScreenWidget::m_videoFunc(ScreenWidget* screen, std::chrono::microseconds* t
 		}
 	}
 	screen->videoLock.unlock();
-
-	return ret;
-}
-
-int ScreenWidget::audioThread(ScreenWidget* screen)
-{
-	screen->threadCount++;
-	int ret = 0;
-	int flag = 0;
-	ScreenStatus status = ScreenStatus::SCREEN_STATUS_NONE;
-	chrono::microseconds tmp_time(0);
-
-	QAudioFormat format;
-	format.setSampleRate(screen->audioSampleRate);
-	format.setChannelCount(screen->audioChannels);
-	format.setSampleFormat(QAudioFormat::SampleFormat::Float);
-
-	QAudioSink audioSink(format, nullptr);
-	//audioSink.setVolume(0.5);
-	auto outputDevice = audioSink.start();
-	qDebug(
-		"audioThread start:\n\t"
-		"sample rate=%d, channels=%d", 
-		screen->audioSampleRate, screen->audioChannels);
-
-	for (;;) {
-		screen->lock.lock();
-		status = screen->status;
-		screen->lock.unlock();
-
-		if (status == ScreenStatus::SCREEN_STATUS_HALT) {
-			break;
-		}
-		else if (status == ScreenStatus::SCREEN_STATUS_PAUSE) {
-			this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
-			continue;
-		}
-		else if (status == ScreenStatus::SCREEN_STATUS_NONE) {
-			this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
-			continue;
-		}
-		else if (status == ScreenStatus::SCREEN_STATUS_PLAYING) {
-			if (screen->audioFrameList.size() == 0) {
-				this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
-				continue;
-			}
-			else {
-				/*flag = m_audioFunc(screen, outputDevice, &tmp_time);
-				if (flag == 1) {
-					this_thread::sleep_for(tmp_time);
-				}
-				else {
-					this_thread::sleep_for(chrono::milliseconds(0));
-				}*/
-				/*screen->audioLock.lock();
-				if (screen->audioFrameList.size()) {
-					auto dt = chrono::duration_cast<chrono::microseconds>(
-						chrono::steady_clock::now() - screen->startTimeStamp);
-					auto current = screen->timeOffset + dt;
-					auto it = screen->audioFrameList.begin();
-					if (current >= it->pts) {
-						outputDevice->write((char*)it->audioData, it->bufSize);
-						av_free(it->audioData);
-						tmp_time = chrono::microseconds(it->duration);
-						screen->audioFrameList.pop_front();
-					}
-				}
-				screen->audioLock.unlock();
-				this_thread::sleep_for(tmp_time);*/
-			}
-		}
-		else {
-			qDebug("in audioThread: fatel error");
-			ret = -1;
-			break;
-		}
-	}
-
-	screen->threadCount--;
-	qDebug("audioThread done");
-	return ret;
-}
-
-int ScreenWidget::m_audioFunc(ScreenWidget* screen, QIODevice* device, std::chrono::microseconds* time)
-{
-	int ret = 0;
-
-	//screen->audioLock.lock();
-	//while (screen->audioFrameList.size()) {
-	//	auto start = chrono::steady_clock::now();
-	//	auto it = screen->audioFrameList.begin();
-	//	auto dt = chrono::duration_cast<chrono::microseconds>(
-	//		start - screen->startTimeStamp);
-	//	auto current = screen->timeOffset + dt;
-	//	auto t1 = it->pts;
-	//	auto t2 = t1 + it->duration;
-
-	//	if (current >= t1 && current < t2) {
-	//		device->write((char*)(it->audioData), it->bufSize);
-	//		av_free(it->audioData);
-	//		*time = it->duration;
-	//		screen->audioFrameList.pop_front();
-	//		ret = 1;
-	//		break;
-	//	}
-	//	else if (current < t1) {
-	//		*time = t1 - current;
-	//		ret = 1;
-	//		break;
-	//	}
-	//	else {
-	//		av_free(it->audioData);
-	//		screen->audioFrameList.pop_front();
-	//		continue;
-	//	}
-	//	/*auto it = screen->audioFrameList.begin();
-	//	device->write((char*)(it->audioData), it->bufSize);
-	//	*time = it->duration;
-	//	av_free(it->audioData);
-	//	screen->audioFrameList.pop_front();
-	//	ret = 1;
-	//	break;*/
-	//}
-	//screen->audioLock.unlock();
 
 	return ret;
 }
@@ -981,7 +888,7 @@ void ScreenWidget::setScreenStatus(ScreenStatus s)
 
 		qDebug("waiting for preload.");
 		int cnt = 0;
-		while (cnt < 20 && (videoFrameList.size() == 0 && audioFrameList.size() == 0)) {
+		while (cnt < 20 && videoFrameList.size() == 0 ) {
 			this_thread::sleep_for(chrono::milliseconds(50));
 			cnt++;
 		}
@@ -990,6 +897,8 @@ void ScreenWidget::setScreenStatus(ScreenStatus s)
 		status = ScreenStatus::SCREEN_STATUS_PLAYING;
 		startTimeStamp = chrono::steady_clock::now();
 		lock.unlock();
+
+		audioSink->resume();
 	}
 	
 	if (s == ScreenStatus::SCREEN_STATUS_HALT) {

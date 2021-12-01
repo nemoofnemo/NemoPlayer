@@ -11,6 +11,7 @@
 #include <QOpenGLWidget>
 #include <QOpenGLFunctions_3_3_Core>
 #include <QMEssageBox>
+#include "NemoAudioDevice.h"
 #include "FFmpegHeader.h"
 
 class ScreenWidget final : 
@@ -22,13 +23,6 @@ public:
 	struct VideoData {
 		uint8_t* videoData[4] = { NULL };
 		int videoLinesize[4] = { 0 };
-		int bufSize = 0;
-		std::chrono::microseconds pts;
-		std::chrono::microseconds duration;
-	};
-
-	struct AudioData {
-		uint8_t* audioData = nullptr;
 		int bufSize = 0;
 		std::chrono::microseconds pts;
 		std::chrono::microseconds duration;
@@ -73,12 +67,14 @@ private:
 	AVFrame* frame = nullptr;
 	SwsContext* sws_ctx = nullptr;
 	SwrContext* swr_ctx = nullptr;
+	QAudioFormat* audioFormat = nullptr;
+	NemoAudioDevice* audioDevice = nullptr;
+	QAudioSink* audioSink;
 	int videoPreload = 10;
 	std::mutex videoLock;
 	std::list<VideoData> videoFrameList;
 	int audioPreload = 50;
-	std::mutex audioLock;
-	std::list<AudioData> audioFrameList;
+	
 	int videoStreamIndex = -1;
 	int audioStreamIndex = -1;
 	
@@ -118,10 +114,7 @@ private:
 	//video display thread
 	static int videoThread(ScreenWidget* screen);
 	static int m_videoFunc(ScreenWidget* screen, std::chrono::microseconds* time);
-	//audio thread
-	static int audioThread(ScreenWidget* screen);
-	static int m_audioFunc(ScreenWidget* screen, QIODevice* device, std::chrono::microseconds* time);
-
+	
 protected:
 	void initializeGL(void) override;
 	void resizeGL(int w, int h) override;
