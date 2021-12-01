@@ -731,13 +731,13 @@ int ScreenWidget::audioThread(ScreenWidget* screen)
 				else {
 					this_thread::sleep_for(chrono::milliseconds(0));
 				}*/
-				screen->audioLock.lock();
+				/*screen->audioLock.lock();
 				if (screen->audioFrameList.size()) {
 					auto dt = chrono::duration_cast<chrono::microseconds>(
 						chrono::steady_clock::now() - screen->startTimeStamp);
 					auto current = screen->timeOffset + dt;
 					auto it = screen->audioFrameList.begin();
-					if (current >= it->pts) 
+					if (current >= it->pts) {
 						outputDevice->write((char*)it->audioData, it->bufSize);
 						av_free(it->audioData);
 						tmp_time = chrono::microseconds(it->duration);
@@ -745,7 +745,7 @@ int ScreenWidget::audioThread(ScreenWidget* screen)
 					}
 				}
 				screen->audioLock.unlock();
-				this_thread::sleep_for(tmp_time);
+				this_thread::sleep_for(tmp_time);*/
 			}
 		}
 		else {
@@ -764,43 +764,43 @@ int ScreenWidget::m_audioFunc(ScreenWidget* screen, QIODevice* device, std::chro
 {
 	int ret = 0;
 
-	screen->audioLock.lock();
-	while (screen->audioFrameList.size()) {
-		auto start = chrono::steady_clock::now();
-		auto it = screen->audioFrameList.begin();
-		auto dt = chrono::duration_cast<chrono::microseconds>(
-			start - screen->startTimeStamp);
-		auto current = screen->timeOffset + dt;
-		auto t1 = it->pts;
-		auto t2 = t1 + it->duration;
+	//screen->audioLock.lock();
+	//while (screen->audioFrameList.size()) {
+	//	auto start = chrono::steady_clock::now();
+	//	auto it = screen->audioFrameList.begin();
+	//	auto dt = chrono::duration_cast<chrono::microseconds>(
+	//		start - screen->startTimeStamp);
+	//	auto current = screen->timeOffset + dt;
+	//	auto t1 = it->pts;
+	//	auto t2 = t1 + it->duration;
 
-		if (current >= t1 && current < t2) {
-			device->write((char*)(it->audioData), it->bufSize);
-			av_free(it->audioData);
-			*time = it->duration;
-			screen->audioFrameList.pop_front();
-			ret = 1;
-			break;
-		}
-		else if (current < t1) {
-			*time = t1 - current;
-			ret = 1;
-			break;
-		}
-		else {
-			av_free(it->audioData);
-			screen->audioFrameList.pop_front();
-			continue;
-		}
-		/*auto it = screen->audioFrameList.begin();
-		device->write((char*)(it->audioData), it->bufSize);
-		*time = it->duration;
-		av_free(it->audioData);
-		screen->audioFrameList.pop_front();
-		ret = 1;
-		break;*/
-	}
-	screen->audioLock.unlock();
+	//	if (current >= t1 && current < t2) {
+	//		device->write((char*)(it->audioData), it->bufSize);
+	//		av_free(it->audioData);
+	//		*time = it->duration;
+	//		screen->audioFrameList.pop_front();
+	//		ret = 1;
+	//		break;
+	//	}
+	//	else if (current < t1) {
+	//		*time = t1 - current;
+	//		ret = 1;
+	//		break;
+	//	}
+	//	else {
+	//		av_free(it->audioData);
+	//		screen->audioFrameList.pop_front();
+	//		continue;
+	//	}
+	//	/*auto it = screen->audioFrameList.begin();
+	//	device->write((char*)(it->audioData), it->bufSize);
+	//	*time = it->duration;
+	//	av_free(it->audioData);
+	//	screen->audioFrameList.pop_front();
+	//	ret = 1;
+	//	break;*/
+	//}
+	//screen->audioLock.unlock();
 
 	return ret;
 }
