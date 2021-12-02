@@ -5,15 +5,10 @@ qint64 NemoAudioDevice::bytesAvailable(void) const
 	return buffer.size() + QIODevice::bytesAvailable();
 }
 
-//qint64 NemoAudioDevice::bytesToWrite() const
-//{
-//	return this->QIODevice::bytesToWrite();
-//}
-
-//bool NemoAudioDevice::isSequential(void) const
-//{
-//	return true;
-//}
+bool NemoAudioDevice::isSequential(void) const
+{
+	return true;
+}
 
 bool NemoAudioDevice::canReadLine(void) const
 {

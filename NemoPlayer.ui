@@ -138,7 +138,6 @@
    </widget>
    <addaction name="menufile"/>
   </widget>
-  <widget class="QStatusBar" name="statusBar"/>
   <action name="actionOpen">
    <property name="text">
     <string>open</string>

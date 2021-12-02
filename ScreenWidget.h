@@ -70,10 +70,9 @@ private:
 	QAudioFormat* audioFormat = nullptr;
 	NemoAudioDevice* audioDevice = nullptr;
 	QAudioSink* audioSink;
-	int videoPreload = 10;
+	int videoPreload = 60;
 	std::mutex videoLock;
 	std::list<VideoData> videoFrameList;
-	int audioPreload = 50;
 	
 	int videoStreamIndex = -1;
 	int audioStreamIndex = -1;
@@ -132,11 +131,15 @@ public:
 
 signals:
 	void drawVideoFrame(VideoData data);
+	void writeAudioData(void* data, int size);
 	void updateScreen(void);
+	void changeScreenStatus(ScreenStatus s);
+	void endOfFile(void);
 
 private slots:
 	void setScreenStatus(ScreenStatus s);
 	void onDrawFrame(VideoData data);
+	void onWriteAudioData(void* data, int size);
 	void onUpdateScreen(void);
 
 public slots:
@@ -144,6 +147,8 @@ public slots:
 	void closeFile(void);
 	void setHWDeviceType(AVHWDeviceType type);
 	void test(bool checked);
-	void play(bool checked);
+	void play(void);
+	void pause(void);
 	void clearScreen(void);
+	void onEndOfFile(void);
 };

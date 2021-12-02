@@ -9,7 +9,7 @@ NemoPlayer::NemoPlayer(QWidget *parent)
 	connect(ui.actionDecodeOption, &QAction::triggered, this, &NemoPlayer::onDecodeOptionAction);
 	connect(ui.actionOpen, &QAction::triggered, this, &NemoPlayer::onOpenFileAction);
 	connect(ui.actionTest, &QAction::triggered, ui.screen, &ScreenWidget::test);
-	connect(ui.playButton, &QPushButton::clicked, ui.screen, &ScreenWidget::play);
+	connect(ui.playButton, &QPushButton::clicked, this, &NemoPlayer::onPlayButtonClicked);
 	connect(ui.actionClose, &QAction::triggered, this, &NemoPlayer::onCloseAction);
 
 	qDebug("ScreenWidget::ScreenWidget");
@@ -60,5 +60,19 @@ void NemoPlayer::onSetDeviceType(AVHWDeviceType type)
 		this->deviceType = type;
 		ui.screen->setHWDeviceType(type);
 		qDebug(str.toStdString().c_str());
+	}
+}
+
+void NemoPlayer::onPlayButtonClicked(bool checked)
+{
+	if (status == PlayerStatus::PLAYER_STATUS_PAUSE) {
+		ui.screen->play();
+		ui.playButton->setText("pause");
+		status = PlayerStatus::PLAYER_STATUS_PLAYING;
+	}
+	else if (status == PlayerStatus::PLAYER_STATUS_PLAYING) {
+		ui.screen->pause();
+		ui.playButton->setText("play");
+		status = PlayerStatus::PLAYER_STATUS_PAUSE;
 	}
 }

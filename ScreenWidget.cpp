@@ -426,6 +426,7 @@ int ScreenWidget::readThread(ScreenWidget* screen)
 					}
 				}
 				else {
+					emit screen->endOfFile();
 					this_thread::sleep_for(chrono::milliseconds(screen->threadInterval));
 				}
 			}
@@ -571,29 +572,12 @@ int ScreenWidget::decodeAudio(ScreenWidget* screen)
 			qDebug("audio av_samples_get_buffer_size error");
 			return -1;
 		}
-		
-		/*AudioData data;
-		data.audioData = dst_data[0];
-		data.bufSize = dst_bufsize;
-		data.pts = chrono::microseconds(
-			ts_to_microsecond(frame->pts,
-				screen->formatContext->streams[screen->audioStreamIndex]->time_base));
-		data.duration = chrono::microseconds(
-			ts_to_microsecond(frame->pkt_duration,
-				screen->formatContext->streams[screen->audioStreamIndex]->time_base));
 
-		screen->audioLock.lock();
-		screen->audioFrameList.push_back(data);
-		screen->audioLock.unlock();*/
-
-		screen->audioDevice->write((char*)dst_data[0], dst_bufsize);
-		av_freep(&dst_data[0]);
+		emit screen->writeAudioData(dst_data[0], dst_bufsize);
 
 		av_frame_unref(frame);
-		if (dst_data) {
-			//av_freep(&dst_data[0]);
-			av_freep(&dst_data);
-		}
+		//av_freep(&dst_data[0]);
+		av_freep(&dst_data);
 	}
 
 	return 0;
@@ -783,6 +767,12 @@ void ScreenWidget::onDrawFrame(VideoData data)
 	update();
 }
 
+void ScreenWidget::onWriteAudioData(void* data, int size)
+{
+	audioDevice->write((char*)data, size);
+	av_free(data);
+}
+
 void ScreenWidget::onUpdateScreen(void)
 {
 	update();
@@ -795,8 +785,10 @@ ScreenWidget::ScreenWidget(QWidget* parent) : QOpenGLWidget(parent)
 
 	connect(this, &ScreenWidget::drawVideoFrame, this, &ScreenWidget::onDrawFrame);
 	connect(this, &ScreenWidget::updateScreen, this, &ScreenWidget::onUpdateScreen);
-
-	}
+	connect(this, &ScreenWidget::writeAudioData, this, &ScreenWidget::onWriteAudioData);
+	connect(this, &ScreenWidget::changeScreenStatus, this, &ScreenWidget::setScreenStatus);
+	connect(this, &ScreenWidget::endOfFile, this, &ScreenWidget::onEndOfFile);
+}
 
 ScreenWidget::~ScreenWidget()
 {
@@ -861,10 +853,17 @@ void ScreenWidget::test(bool checked)
 	//audio->start(sourceFile);
 }
 
-void ScreenWidget::play(bool checked)
+void ScreenWidget::play(void)
 {
 	if (formatContext) {
 		setScreenStatus(ScreenStatus::SCREEN_STATUS_PLAYING);
+	}
+}
+
+void ScreenWidget::pause(void)
+{
+	if (formatContext) {
+		setScreenStatus(ScreenStatus::SCREEN_STATUS_PAUSE);
 	}
 }
 
@@ -877,9 +876,32 @@ void ScreenWidget::clearScreen(void)
 	update();
 }
 
+void ScreenWidget::onEndOfFile(void)
+{
+	if (formatContext) {
+		setScreenStatus(ScreenStatus::SCREEN_STATUS_PAUSE);
+	}
+}
+
 void ScreenWidget::setScreenStatus(ScreenStatus s)
 {
 	qDebug("setScreenStatus: %d to %d", status, s);
+
+	if (status == s) {
+		return;
+	}
+
+	if (s == ScreenStatus::SCREEN_STATUS_PAUSE) {
+		lock.lock();
+		readStatus = ThreadStatus::THREAD_PAUSE;
+		status = ScreenStatus::SCREEN_STATUS_PAUSE;
+		if (audioSink) {
+			audioSink->suspend();
+		}
+		timeOffset = chrono::duration_cast<chrono::microseconds>
+			(chrono::steady_clock::now() - startTimeStamp);
+		lock.unlock();
+	}
 
 	if (s == ScreenStatus::SCREEN_STATUS_PLAYING) {
 		lock.lock();
@@ -892,13 +914,13 @@ void ScreenWidget::setScreenStatus(ScreenStatus s)
 			this_thread::sleep_for(chrono::milliseconds(50));
 			cnt++;
 		}
+		qDebug("preload complete.");
 
 		lock.lock();
 		status = ScreenStatus::SCREEN_STATUS_PLAYING;
 		startTimeStamp = chrono::steady_clock::now();
-		lock.unlock();
-
 		audioSink->resume();
+		lock.unlock();
 	}
 	
 	if (s == ScreenStatus::SCREEN_STATUS_HALT) {
